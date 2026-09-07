@@ -10,7 +10,10 @@ export const newPairingId = () =>
     ? crypto.randomUUID()
     : `pairing-${Math.random().toString(36).slice(2)}`
 
-// TODO: replace with the saved mediators/agents once those toolkits are wired up.
+export type MemberOption = { value: string; label: string }
+
+// TODO: replace with the saved mediators once that toolkit is wired up. Agents
+// already come from the Agent Participants toolkit via `agentOptions`.
 export const MEDIATOR_OPTIONS = [
   { value: 'no_mediator', label: 'No mediator' },
   { value: 'mediator1', label: 'Mediator1' },
@@ -18,24 +21,23 @@ export const MEDIATOR_OPTIONS = [
   { value: 'mediator3', label: 'Mediator3' },
 ] as const
 
-export const AGENT_OPTIONS = [
-  { value: 'agent1', label: 'Agent1' },
-  { value: 'agent2', label: 'Agent2' },
-  { value: 'agent3', label: 'Agent3' },
-] as const
+const MEDIATOR_VALUES = new Set<string>(
+  MEDIATOR_OPTIONS.filter(o => o.value !== 'no_mediator').map(o => o.value),
+)
 
 // What a pairing means to a run: how many agents sit in the conversation, and
 // whether a mediator joins them. Which specific agent/mediator was picked is
 // ignored for now — agents are generated with random stances and the mediator
 // comes from the stock preset.
+//
+// Agents are identified by exclusion rather than by a fixed list, because the
+// list is now the user's own saved agents: a simulation saved against an agent
+// that has since been renamed still counts toward the agent total.
 export function summarizePairing(pairing: Pairing) {
-  const agentValues = new Set<string>(AGENT_OPTIONS.map(o => o.value))
-  const mediatorValues = new Set<string>(
-    MEDIATOR_OPTIONS.filter(o => o.value !== 'no_mediator').map(o => o.value),
-  )
+  const selected = pairing.members.filter(m => m && m !== 'no_mediator')
   return {
-    agentCount: pairing.members.filter(m => agentValues.has(m)).length,
-    hasMediator: pairing.members.some(m => mediatorValues.has(m)),
+    agentCount: selected.filter(m => !MEDIATOR_VALUES.has(m)).length,
+    hasMediator: selected.some(m => MEDIATOR_VALUES.has(m)),
   }
 }
 
@@ -45,10 +47,13 @@ function ordinal(n: number) {
   return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`
 }
 
-export function PairingsEditor({ pairings, onUpdate }: {
+export function PairingsEditor({ pairings, onUpdate, agentOptions = [] }: {
   pairings: Pairing[]
   onUpdate: (pairings: Pairing[]) => void
+  /** Agents saved in the Agent Participants toolkit. */
+  agentOptions?: MemberOption[]
 }) {
+  const agentValues = new Set(agentOptions.map(o => o.value))
   const addExperiment = () => onUpdate([...pairings, { id: newPairingId(), members: [] }])
 
   const removeExperiment = (idx: number) => onUpdate(pairings.filter((_, i) => i !== idx))
@@ -98,10 +103,19 @@ export function PairingsEditor({ pairings, onUpdate }: {
                   ))}
                 </optgroup>
                 <optgroup label="Agents">
-                  {AGENT_OPTIONS.map(o => (
+                  {agentOptions.length === 0 && (
+                    <option value="" disabled>Save an agent in the Agent Participants toolkit</option>
+                  )}
+                  {agentOptions.map(o => (
                     <option key={o.value} value={o.value}>{o.label}</option>
                   ))}
                 </optgroup>
+                {/* An agent the simulation was saved against but that no longer
+                    exists still needs an option, or the select would silently
+                    blank the choice out. */}
+                {member && !agentValues.has(member) && !MEDIATOR_VALUES.has(member) && member !== 'no_mediator' && (
+                  <option value={member}>{member} (no longer saved)</option>
+                )}
               </select>
               <button
                 onClick={() => removeMember(idx, memberIdx)}

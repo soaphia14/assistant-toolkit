@@ -10,6 +10,7 @@ import { Nav } from '../components/Nav'
 import { PairingsEditor, newPairingId, summarizePairing, type Pairing } from '../components/PairingsEditor'
 import { BlockCustomization, DEFAULT_BLOCKS, type Block } from '../components/BlockCustomization'
 import { ActionButton, ResultBox, type ActionState } from '../components/ExperimentActions'
+import { useSavedAgents } from '../lib/agents'
 
 const SUBMISSION_FORMS = {
   track1: 'https://docs.google.com/forms/d/e/1FAIpQLSfTt_sYtTiiq_DszbId2VyqSLUr0tsfcRZqiC3uHi0YXh-3ew/viewform?usp=dialog',
@@ -61,6 +62,14 @@ export default function SimulationPage() {
   const router = useRouter()
   const [authReady, setAuthReady] = useState(false)
   const [userEmail, setUserEmail] = useState<string | null>(null)
+
+  // Agents come from the Agent Participants toolkit, so saving one there makes
+  // it selectable in the Pairings below.
+  const { agents } = useSavedAgents()
+  const agentOptions = useMemo(
+    () => agents.map(a => ({ value: a.id, label: a.name })),
+    [agents],
+  )
 
   // saving
   const [savedTemplates, setSavedTemplates] = useState<{ id: string; name: string }[]>([])
@@ -508,7 +517,7 @@ export default function SimulationPage() {
             </Field>
 
             <Field label="Pairings (combination of agents and mediators)">
-              <PairingsEditor pairings={pairings} onUpdate={updatePairings} />
+              <PairingsEditor pairings={pairings} onUpdate={updatePairings} agentOptions={agentOptions} />
             </Field>
           </div>
 

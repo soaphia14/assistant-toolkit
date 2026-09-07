@@ -115,8 +115,14 @@ export function buildPromptItems(tpl: Record<string, any>, stageId: string, stag
       items.push({ type: 'TEXT', text: promptItem.text })
     } else if (kind === 'BIASED') {
       items.push({ type: 'TEXT', text: '{{target_bias_position}}', })
+    } else if (kind === 'BLOCK') {
+      // resolveBlockItems normally rewrites these against the live simulation
+      // before we get here; fall back to the copy the item carries.
+      const name = String(promptItem.name ?? '')
+      const description = String(promptItem.description ?? '')
+      items.push({ type: 'TEXT', text: description ? `${name}: ${description}` : name })
     } else {
-      throw new Error(`Unknown prompt item type ${kind}. Must be 'CONTEXT', 'PROFILE_INFO', 'PROFILE_CONTEXT', 'INITIALIZATION_CONTEXT', 'BIASED' or 'TEXT'.`)
+      throw new Error(`Unknown prompt item type ${kind}. Must be 'CONTEXT', 'PROFILE_INFO', 'PROFILE_CONTEXT', 'INITIALIZATION_CONTEXT', 'BIASED', 'BLOCK' or 'TEXT'.`)
     }
   }
   return [...items, ...stageSpecificPrompts]

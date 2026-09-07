@@ -9,7 +9,7 @@ import { buildAgent } from './parsers/agent'
 import type { AgentParticipantTemplate } from './parsers/agent'
 import { buildTopic, buildStages, buildExperiment } from './parsers/experiment'
 import { parseSimulationTemplate, applySimulationToChatStage } from './parsers/simulation'
-import { loadTemplate, replaceDefaults, fillAgentStance, agentConfig, createParticipant, excludeNone } from './utils'
+import { loadTemplate, replaceDefaults, fillAgentStance, agentConfig, createParticipant, excludeNone, resolveBlockItems } from './utils'
 import { url } from 'inspector/promises'
 
 export type Mode = 'human-human' | 'human-agent' | 'agent-agent'
@@ -107,7 +107,7 @@ export async function generate(p1: string, p2: string, experimentTemplatePath: s
   // A run may deliberately have no mediator, in which case the experiment is
   // created with an empty `agentMediators` list.
   const mediatorR1 = mediatorTemplateContent
-    ? buildMediator(chatStageId, parseMediatorTemplate(mediatorTemplateContent), stageIdsInOrder, topicInfo)
+    ? buildMediator(chatStageId, parseMediatorTemplate(mediatorTemplateContent), stageIdsInOrder, topicInfo, simulation?.blocks ?? [])
     : null
 
   const exp = experimentTemplate.experiment ?? {}
@@ -169,8 +169,12 @@ export async function generate(p1: string, p2: string, experimentTemplatePath: s
         const [filled, finalStance] = fillAgentStance(tpl, topicInfo, s.rating, s.rating)
         stance[slot] = { side: finalStance.side, strength: finalStance.strength } // removing rating and concession info
 
-        configs.push(filled.agent_config ?? '')
-        pair.push(buildAgent(chatStageId, preSurveyStageId, postSurveyStageId, filled, stageIdsInOrder))
+        // Agent prompts can reference simulation blocks too, so they go through
+        // the same resolution as the mediator's.
+        const resolved = resolveBlockItems(filled, simulation?.blocks ?? [])
+
+        configs.push(resolved.agent_config ?? '')
+        pair.push(buildAgent(chatStageId, preSurveyStageId, postSurveyStageId, resolved, stageIdsInOrder))
       } else {
         humanSlots[slot] = slotToPid[slot] ?? slot
       }

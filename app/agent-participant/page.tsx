@@ -6,17 +6,12 @@ import {
   type PromptItem,
 } from '../components/StructuredPromptEditor'
 import { MediatorSection } from '../components/MediatorSection'
+import { Nav } from '../components/Nav'
+import { SimulationBlockPicker } from '../components/SimulationBlockPicker'
+import { useSimulationBlocks } from '../lib/blocks'
+import { useSavedAgents, type SavedAgent } from '../lib/agents'
 
 type AgentPrompt = {
-  id: string
-  name: string
-  description: string
-  prompt: PromptItem[]
-  order: number
-  addTo: string | null
-}
-
-type SavedPrompt = {
   id: string
   name: string
   description: string
@@ -80,6 +75,12 @@ function PromptBlockLegend() {
           'The discussion up to the current message.'
         )}
 
+        {legend(
+          'bg-[#e6dcfd]',
+          'Simulation Blocks',
+          'The blocks you defined under Block Customization in the Simulation Toolkit.'
+        )}
+
       </div>
     </div>
   )
@@ -90,35 +91,20 @@ export default function AgentParticipantsPage() {
     'Agent Participant'
   )
 
-  const [savedPrompts, setSavedPrompts] = useState<SavedPrompt[]>([
-    {
-      id: '1',
-      name: 'Debate Agent',
-      description:
-        'A prompt for generating thoughtful debate responses.',
-      prompt: [],
-      order: 1,
-      addTo: null,
-    },
-    {
-      id: '2',
-      name: 'Friendly Assistant',
-      description:
-        'A prompt for generating friendly and conversational responses.',
-      prompt: [],
-      order: 1,
-      addTo: null,
-    },
-    {
-      id: '3',
-      name: 'Political Expert',
-      description:
-        'A prompt for generating responses from a political expert perspective.',
-      prompt: [],
-      order: 1,
-      addTo: null,
-    },
-  ])
+  // Blocks are authored in the Simulation Toolkit and live inside the saved
+  // simulation, so they are read-only here.
+  const { blocks, simulations, selectedId, setSelectedId } = useSimulationBlocks()
+
+  // The saved library is shared with the Simulation Toolkit, which lists these
+  // as the agents a pairing can be built from.
+  const {
+    agents: savedPrompts,
+    signedIn,
+    saveAgent,
+    deleteAgent,
+  } = useSavedAgents()
+
+  const [saving, setSaving] = useState(false)
 
  const [prompts, setPrompts] = useState<AgentPrompt[]>([
   {
@@ -220,32 +206,31 @@ export default function AgentParticipantsPage() {
     })
   }
 
-  function saveCurrentPrompt() {
-    if (!activePrompt) return
+  // Saving under a name that already exists overwrites it, matching how the
+  // mediator and simulation toolkits treat their own libraries.
+  async function saveCurrentPrompt() {
+    if (!activePrompt || saving) return
 
-    const savedPrompt: SavedPrompt = {
-      id: crypto.randomUUID(),
-      name: activePrompt.name,
-      description: activePrompt.description,
-      prompt: structuredClone(activePrompt.prompt),
-      order: activePrompt.order,
-      addTo: activePrompt.addTo,
+    setSaving(true)
+    try {
+      await saveAgent({
+        name: activePrompt.name,
+        description: activePrompt.description,
+        prompt: structuredClone(activePrompt.prompt),
+        order: activePrompt.order,
+        addTo: activePrompt.addTo,
+      })
+    } finally {
+      setSaving(false)
     }
-
-    setSavedPrompts(prev => [
-      ...prev,
-      savedPrompt,
-    ])
   }
 
   function deleteSavedPrompt(id: string) {
-    setSavedPrompts(prev =>
-      prev.filter(prompt => prompt.id !== id)
-    )
+    deleteAgent(id)
   }
 
   function openSavedPrompt(
-    savedPrompt: SavedPrompt
+    savedPrompt: SavedAgent
   ) {
     // Check whether this prompt is already
     // part of the current agent.
@@ -344,6 +329,8 @@ export default function AgentParticipantsPage() {
             </p>
 
           </div>
+
+          <Nav />
 
           {/* SAVE BAR */}
 
@@ -508,13 +495,18 @@ export default function AgentParticipantsPage() {
                   </h3>
 
                   <p className="text-xs text-neutral-500 mt-1">
-                    Save this prompt to your prompt library.
+                    {signedIn
+                      ? 'Save this agent to your library. It becomes selectable in the Simulation Toolkit\u2019s Pairings.'
+                      : 'Sign in to save this agent to your library.'}
                   </p>
                 </div>
 
                 <button
                   onClick={saveCurrentPrompt}
+                  disabled={!signedIn || saving}
                   className="
+                    disabled:opacity-40
+                    disabled:cursor-not-allowed
                     shrink-0
                     px-3
                     py-1.5
@@ -529,7 +521,7 @@ export default function AgentParticipantsPage() {
                     transition-colors
                   "
                 >
-                  Save Prompt
+                  {saving ? 'Saving…' : 'Save Prompt'}
                 </button>
 
               </div>
@@ -660,11 +652,18 @@ export default function AgentParticipantsPage() {
 
               <PromptBlockLegend />
 
+              <SimulationBlockPicker
+                simulations={simulations}
+                selectedId={selectedId}
+                onSelect={setSelectedId}
+              />
+
               <StructuredPromptEditor
                 label={activePrompt.name}
                 prompt={activePrompt.prompt}
                 stageId=""
                 onUpdate={updatePromptItems}
+                blocks={blocks}
 
                 /*
                  * These props assume you expose them in
@@ -863,6 +862,14 @@ export default function AgentParticipantsPage() {
           </div>
 
         <div className="space-y-2">
+
+          {savedPrompts.length === 0 && (
+            <p className="text-sm text-neutral-500">
+              {signedIn
+                ? 'No saved agents yet. Save a prompt above and it will appear here, and in the Simulation Toolkit’s Pairings.'
+                : 'Sign in to see your saved agents.'}
+            </p>
+          )}
 
           {savedPrompts.map(prompt => (
 

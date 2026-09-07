@@ -1,14 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { DEFAULT_BLOCKS, type Block } from '../lib/blocks'
 
-export type Block = { name: string; description: string }
-
-// Blocks every new simulation starts with. They behave exactly like custom
-// blocks — clicking one opens the same editor, and it can be edited or removed.
-export const DEFAULT_BLOCKS: Block[] = [
-  { name: 'Debate Topic', description: 'The topic of the debate.' },
-]
+// Re-exported so existing importers keep working; both now live in lib/blocks
+// so the prompt editors can read them without pulling in this editor.
+export { DEFAULT_BLOCKS }
+export type { Block }
 
 // `index === null` means the editor is open for a brand-new block.
 type Editing = { index: number | null; name: string; description: string }

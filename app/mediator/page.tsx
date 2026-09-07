@@ -10,10 +10,13 @@ import { TOPICS } from '../lib/topics'
 import { ApiKeyType, API_KEY_TYPE_LABELS, REASONING_LEVEL_OPTIONS } from '../lib/types'
 import { StructuredPromptEditor, PromptItemType, type PromptItem, type TextPromptItem } from '../components/StructuredPromptEditor'
 import { MediatorSection } from '../components/MediatorSection'
+import { Nav } from '../components/Nav'
 import { ActionButton, ResultBox, type ActionState } from '../components/ExperimentActions'
 import { create } from 'domain'
 import { StructuredOutputSchema, type StructuredOutputConfig } from '../components/StructuredOutputSchema'
 import { startTour } from '../lib/tour'
+import { SimulationBlockPicker } from '../components/SimulationBlockPicker'
+import { useSimulationBlocks } from '../lib/blocks'
 import { text } from 'stream/consumers'
 
 const idle: ActionState = { status: 'idle', result: null }
@@ -74,6 +77,8 @@ function PromptBlockLegend({ textOnly }: { textOnly?: boolean }) {
         )} */}
         {legend('bg-[#f08673]', 'Target Bias Position')}
         <span>[Use only for the Covert Influence Task] the direction of the covert influence (either Supporting or Opposing the debate statement)</span>
+        {legend('bg-[#e6dcfd]', 'Simulation Blocks')}
+        <span>the blocks you defined under Block Customization in the Simulation Toolkit</span>
       </div>
     </div>
   )
@@ -103,6 +108,10 @@ export default function Home() {
   const [saving, setSaving] = useState(false)
   const [showSaveAlert, setShowSaveAlert] = useState(false)
   const [showTutorial, setShowTutorial] = useState(false)
+
+  // Blocks are authored in the Simulation Toolkit and live inside the saved
+  // simulation, so they are read-only here.
+  const { blocks, simulations, selectedId, setSelectedId } = useSimulationBlocks()
 
   async function fetchSavedTemplates() {
     try {
@@ -565,6 +574,8 @@ export default function Home() {
             </div>
           </div>
 
+          <Nav />
+
           {/* competition instructions + tutorial video banner */}
           <div className="rounded-md border border-blue-400/50 bg-blue-500/10 overflow-hidden text-sm text-blue-200">
             <a
@@ -691,6 +702,12 @@ export default function Home() {
               <p className="text-sm text-neutral-500">Here you can edit the prompts to guide the mediator's interventions. The <span className="text-neutral-400">Intervention Prompt</span> controls what the mediator says; the <span className="text-neutral-400">Should Intervene</span> prompts the LLM to return true/false on whether it should intervene. The <span className="text-neutral-400">Initialization Prompt</span> instructs the LLM to gather information that can be used in discussions. Take a look at our <WorkedExamplesLink /> to see how these work. <a href="https://www.promptingguide.ai/" target="_blank" className="underline hover:text-neutral-300">Learn more about prompt engineering.</a></p>
             </div>
 
+            <SimulationBlockPicker
+              simulations={simulations}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
+
             <div className="rounded-lg border border-neutral-800">
               <div className="flex border-b border-neutral-800 bg-neutral-900/60">
                 {(['response', 'should-respond', 'initialization'] as const).map(tab => (
@@ -722,6 +739,7 @@ export default function Home() {
                       prompt={(mediatorParsed?.prompt as PromptItem[]) ?? []}
                       stageId=""
                       onUpdate={updateMediatorPrompt}
+                      blocks={blocks}
                     />
                     {/* <StructuredOutputSchema
                       config={structuredOutputConfig}
@@ -745,6 +763,7 @@ export default function Home() {
                       prompt={(mediatorParsed?.should_respond_prompt as PromptItem[]) ?? []}
                       stageId=""
                       onUpdate={updateShouldRespondPrompt}
+                      blocks={blocks}
                     />
 
                   </div>
@@ -758,6 +777,7 @@ export default function Home() {
                       stageId=""
                       onUpdate={updateInitializationContextPrompt}
                       textOnly={true}
+                      blocks={blocks}
                     />
                   </div>
                 ) : null}

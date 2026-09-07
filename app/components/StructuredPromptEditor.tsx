@@ -1,6 +1,7 @@
 'use client'
 
 import { createContext, useContext, useState, useRef, useEffect } from 'react'
+import type { Block } from '../lib/blocks'
 
 // ============================================================
 // Types
@@ -14,6 +15,7 @@ export enum PromptItemType {
   PRELOADED_CONTEXT='PRELOADED_CONTEXT',
   BIASED = 'BIASED',
   TOPIC_NAME = 'TOPIC_NAME',
+  BLOCK = 'BLOCK',
 }
 
 export interface PromptItem {
@@ -46,6 +48,16 @@ export interface PreloadedContextPromptItem extends PromptItem {
 
 export interface BiasedPromptItem extends PromptItem {
   type: PromptItemType.BIASED
+}
+
+// A block authored in the Simulation Toolkit's Block Customization panel. The
+// description is copied in alongside the name so an exported template still
+// carries the text: a run launched from the mediator toolkit sends no
+// simulation, so there is nothing to look the name up in.
+export interface BlockPromptItem extends PromptItem {
+  type: PromptItemType.BLOCK
+  name: string
+  description: string
 }
 
 export interface PromptItemUpdate {
@@ -95,6 +107,7 @@ function treeReorder(root: PromptItem[], targetArr: PromptItem[], from: number, 
 
 interface EditorCtx {
   locked: boolean
+  blocks: Block[]
   updateItem: (item: PromptItem, updates: PromptItemUpdate) => void
   addItem: (targetArr: PromptItem[], newItem: PromptItem) => void
   deleteItem: (targetArr: PromptItem[], index: number) => void
@@ -135,7 +148,7 @@ function IconButton({ icon, title, onClick }: {
   )
 }
 
-function AddMenu({ targetArr, textOnly }: { targetArr: PromptItem[], textOnly?: boolean }) {
+function AddMenu({ targetArr, textOnly, blocks = [] }: { targetArr: PromptItem[], textOnly?: boolean, blocks?: Block[] }) {
   const { addItem, locked } = useEditorCtx()
   if (locked) return null
   const [open, setOpen] = useState(false)
@@ -206,6 +219,34 @@ function AddMenu({ targetArr, textOnly }: { targetArr: PromptItem[], textOnly?: 
           <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.BIASED } as BiasedPromptItem)}>
             Target Bias Position
           </div>
+
+          {/* Blocks authored in the Simulation Toolkit. They only appear once
+              the simulation holding them has been saved. */}
+          <div className="my-0.5 border-t border-neutral-700" />
+          <div className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-widest text-neutral-600">
+            Simulation Blocks
+          </div>
+          {blocks.length === 0 ? (
+            <div className="px-3 pb-2 max-w-56 text-xs text-neutral-600">
+              No blocks yet — add them under Block Customization in the Simulation Toolkit, then save the simulation.
+            </div>
+          ) : (
+            blocks.map(block => (
+              <div
+                key={block.name}
+                className={itemClass}
+                role="button"
+                title={block.description}
+                onClick={() => pick({
+                  type: PromptItemType.BLOCK,
+                  name: block.name,
+                  description: block.description,
+                } as BlockPromptItem)}
+              >
+                {block.name}
+              </div>
+            ))
+          )}
         </div>
       )}
     </div>
@@ -235,6 +276,27 @@ function TextItemEditor({ item }: { item: TextPromptItem }) {
       value={item.text}
       onChange={e => updateItem(item, { text: e.target.value })}
     />
+  )
+}
+
+// The name is the reference; the description is only a fallback copy, so the
+// chip shows whichever description the simulation currently holds. A block the
+// simulation no longer defines is flagged rather than dropped — the prompt still
+// runs on the copy it carries.
+function BlockItemEditor({ item }: { item: BlockPromptItem }) {
+  const { blocks } = useEditorCtx()
+  const live = blocks.find(b => b.name === item.name)
+  const missing = blocks.length > 0 && !live
+
+  return (
+    <div
+      title={missing
+        ? `This block is no longer in the selected simulation. It will run with the text saved here:\n\n${item.description}`
+        : live?.description ?? item.description}
+      className="cursor-default rounded bg-[#e6dcfd] px-3 py-1.5 text-sm font-medium text-neutral-900"
+    >
+      {missing ? '⚠ ' : ''}{item.name}
+    </div>
   )
 }
 
@@ -281,6 +343,8 @@ function ItemEditor({ item }: { item: PromptItem }) {
           Target Bias Position
         </div>
       )
+    case PromptItemType.BLOCK:
+      return <BlockItemEditor item={item as BlockPromptItem} />
     default:
       return null
   }
@@ -396,6 +460,8 @@ export interface StructuredPromptEditorProps {
   label?: string
   locked?: boolean
   textOnly?: boolean
+  /** Blocks of the selected simulation, offered under "Add item". */
+  blocks?: Block[]
 }
 
 export function StructuredPromptEditor({
@@ -404,9 +470,28 @@ export function StructuredPromptEditor({
   label = 'Prompt editor',
   locked = false,
   textOnly = false,
+  blocks = [],
 }: StructuredPromptEditorProps) {
+  // A block item carries a copy of its description so the exported template runs
+  // without the simulation. Re-editing the block in the Simulation Toolkit would
+  // leave that copy behind, so refresh it whenever the two drift apart.
+  useEffect(() => {
+    if (locked || blocks.length === 0) return
+    let changed = false
+    const synced = prompt.map(item => {
+      if (item.type !== PromptItemType.BLOCK) return item
+      const block = item as BlockPromptItem
+      const live = blocks.find(b => b.name === block.name)
+      if (!live || live.description === block.description) return item
+      changed = true
+      return { ...block, description: live.description }
+    })
+    if (changed) onUpdate(synced)
+  }, [prompt, blocks, locked, onUpdate])
+
   const ctx: EditorCtx = {
     locked,
+    blocks,
     updateItem: (item, updates) => onUpdate(treeUpdateItem(prompt, item, updates)),
     addItem: (targetArr, newItem) => onUpdate(treeAddTo(prompt, targetArr, newItem)),
     deleteItem: (targetArr, index) => onUpdate(treeRemoveFrom(prompt, targetArr, index)),
@@ -419,7 +504,7 @@ export function StructuredPromptEditor({
       <div className="rounded-lg border border-neutral-700 bg-neutral-900">
         <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-700/60">
           <span className="text-xs font-semibold uppercase tracking-widest text-neutral-500">{label}</span>
-          <AddMenu targetArr={prompt} textOnly={textOnly}/>
+          <AddMenu targetArr={prompt} textOnly={textOnly} blocks={blocks} />
         </div>
         <div className="p-3">
           <PromptItemList items={prompt} />

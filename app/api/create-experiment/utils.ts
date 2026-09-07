@@ -22,6 +22,35 @@ export function substituteTokens(obj: any, subs: Record<string, string>): any {
   return obj
 }
 
+/**
+ * Rewrites every `BLOCK` prompt item into the plain `TEXT` item the backend
+ * expects, in place of the block authored in the simulation toolkit.
+ *
+ * A block item carries both the `name` it refers to and a copy of the
+ * `description` it had when it was added. The live simulation wins when it still
+ * defines that name, so editing a block there updates every prompt referencing
+ * it; the copy is the fallback for runs that send no simulation at all (a
+ * mediator-toolkit run, or an exported template run on its own).
+ *
+ * Walking the whole template rather than each prompt array covers the response,
+ * should-respond, initialization and survey prompts in one pass.
+ */
+export function resolveBlockItems(obj: any, blocks: { name: string; description: string }[] = []): any {
+  if (Array.isArray(obj)) return obj.map((x) => resolveBlockItems(x, blocks))
+  if (obj && typeof obj === 'object') {
+    if (obj.type === 'BLOCK') {
+      const name = String(obj.name ?? '')
+      const live = blocks.find((b) => b.name === name)
+      const description = live ? live.description : String(obj.description ?? '')
+      return { ...obj, type: 'TEXT', text: description ? `${name}: ${description}` : name }
+    }
+    const out: Record<string, any> = {}
+    for (const [k, v] of Object.entries(obj)) out[k] = resolveBlockItems(v, blocks)
+    return out
+  }
+  return obj
+}
+
 // replace missing values by defaults
 export function replaceDefaults(template: Record<string, any>, defaults: Record<string, any>): Record<string, any> {
   const merged: Record<string, any> = { ...defaults }
