@@ -19,6 +19,10 @@ export interface ProfileInfoPromptItem {
   type: 'PROFILE_INFO'
 }
 
+export interface ParticipantInfoPromptItem {
+  type: 'PARTICIPANT_INFO'
+}
+
 export interface ProfileContextPromptItem {
   type: 'PROFILE_CONTEXT'
 }
@@ -27,7 +31,7 @@ export interface InitializationContextPromptItem {
   type: 'INITIALIZATION_CONTEXT'
 }
 
-export type PromptItem = StageContextItem | TextPromptItem | ProfileInfoPromptItem | ProfileContextPromptItem | InitializationContextPromptItem
+export type PromptItem = StageContextItem | TextPromptItem | ProfileInfoPromptItem | ParticipantInfoPromptItem | ProfileContextPromptItem | InitializationContextPromptItem
 
 export interface StructuredOutputSchemaProperty {
   name: string
@@ -107,6 +111,8 @@ export function buildPromptItems(tpl: Record<string, any>, stageId: string, stag
       items.push(...buildContextItems(stageId, stageIdsInOrder, promptItem.context ?? context))
     } else if (kind === 'PROFILE_INFO') {
       items.push({ type: 'PROFILE_INFO' })
+    } else if (kind === 'PARTICIPANT_INFO') {
+      items.push({ type: 'PARTICIPANT_INFO' })
     } else if (kind === 'PROFILE_CONTEXT') {
       items.push({ type: 'PROFILE_CONTEXT' })
     } else if (kind === 'INITIALIZATION_CONTEXT' || kind === 'PRELOADED_CONTEXT') {
@@ -122,7 +128,7 @@ export function buildPromptItems(tpl: Record<string, any>, stageId: string, stag
       const description = String(promptItem.description ?? '')
       items.push({ type: 'TEXT', text: description ? `${name}: ${description}` : name })
     } else {
-      throw new Error(`Unknown prompt item type ${kind}. Must be 'CONTEXT', 'PROFILE_INFO', 'PROFILE_CONTEXT', 'INITIALIZATION_CONTEXT', 'BIASED', 'BLOCK' or 'TEXT'.`)
+      throw new Error(`Unknown prompt item type ${kind}. Must be 'CONTEXT', 'PROFILE_INFO', 'PARTICIPANT_INFO', 'PROFILE_CONTEXT', 'INITIALIZATION_CONTEXT', 'BIASED', 'BLOCK' or 'TEXT'.`)
     }
   }
   return [...items, ...stageSpecificPrompts]

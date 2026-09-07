@@ -25,7 +25,9 @@ export const MEDIATOR_DEFAULT = path.join(PROJECT_ROOT, 'public', 'templates', '
 // authoring one. Same file the mediator toolkit seeds its editor with, and it
 // is layered over MEDIATOR_DEFAULT by buildMediator just like an authored one.
 export const MEDIATOR_PRESET = path.join(PROJECT_ROOT, 'public', 'templates', 'competition', 'mediator.yaml')
+export const ASSISTANT_DEFAULT = path.join(PROJECT_ROOT, 'public', 'templates', 'defaults', 'assistant.yaml')
 export const EXPERIMENT_DEFAULT = path.join(PROJECT_ROOT, 'public', 'templates', 'defaults', 'experiment.yaml')
+export const COMPETITION_MEDIATOR = path.join(PROJECT_ROOT, 'public', 'templates', 'competition', 'mediator.yaml')
 
 export const STAGE_R1 = 'chat-round-1'
 export const PRE_SURVEY_STAGE_ID = "pre-survey"

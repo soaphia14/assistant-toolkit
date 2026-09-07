@@ -4,6 +4,8 @@ import { generate, type Mode } from './generator'
 import { MEDIATOR_PRESET } from './config'
 import { adminAuth, adminDb } from '../../lib/firebaseAdmin'
 import { FieldValue } from 'firebase-admin/firestore'
+import { loadTemplate } from './utils'
+import { MEDIATOR_DEFAULT, COMPETITION_MEDIATOR } from './config'
 
 const MODES: Mode[] = ['human-human', 'human-agent', 'agent-agent']
 
@@ -36,9 +38,10 @@ async function checkAndIncrementQuota(email: string, cohorts: number): Promise<{
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}))
-  const { mediatorTemplate, simulationTemplate, mediator = 'template', numAgents, p1 = 'participant-1', p2 = 'participant-2', topic = 'covenant_marriage', mode, numCohorts, numUtterances, action = 'create', idToken } = body as {
+  const { mediatorTemplate, simulationTemplate, assistantTemplate, mediator = 'template', numAgents, p1 = 'participant-1', p2 = 'participant-2', topic = 'covenant_marriage', mode, numCohorts, numUtterances, action = 'create', idToken } = body as {
     mediatorTemplate?: string
     simulationTemplate?: string
+    assistantTemplate?: string
     // Which mediator to run with: the caller's own `mediatorTemplate`, the stock
     // preset, or none at all.
     mediator?: 'template' | 'preset' | 'none'
@@ -69,6 +72,11 @@ export async function POST(req: Request) {
     mediatorContent = fs.readFileSync(MEDIATOR_PRESET, 'utf8')
   } else if (mediatorTemplate) {
     mediatorContent = mediatorTemplate
+  } else if (assistantTemplate) {
+    // The assistant toolkit only lets the user edit the assistant, not the mediator —
+    // fall back to the competition mediator content (mirrors what the mediator page's
+    // "Load Default" merges client-side) so the experiment still has a working mediator.
+    mediatorContent = JSON.stringify({ ...loadTemplate(MEDIATOR_DEFAULT), ...loadTemplate(COMPETITION_MEDIATOR) })
   } else {
     return Response.json({ error: 'mediatorTemplate is required' }, { status: 400 })
   }
@@ -106,7 +114,7 @@ export async function POST(req: Request) {
   const experimentTemplatePath = path.join(topicsDir, chosen, 'experiment.yaml')
 
   try {
-    const result = await generate(p1, p2, experimentTemplatePath, mediatorContent, mode, cohortCount, utteranceCount, action, simulationTemplate, agentCount)
+    const result = await generate(p1, p2, experimentTemplatePath, mediatorContent, mode, cohortCount, utteranceCount, action, simulationTemplate, agentCount, assistantTemplate)
     return Response.json(result)
   } catch (e) {
     console.error('Error in create-experiment:', e)

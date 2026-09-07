@@ -3,6 +3,7 @@ import { COMPLETION_CODE } from '../config'
 import { wrapChars } from '../utils'
 import type { AgentMediatorTemplate } from './mediator'
 import type { AgentParticipantTemplate } from './agent'
+import type { AgentAssistantTemplate } from './assistant'
 import { substituteTokens } from '../utils'
 
 
@@ -37,7 +38,8 @@ export function buildExperiment(
   mediator: AgentMediatorTemplate | null,
   agents: AgentParticipantTemplate[] | null,
   mode: string,
-  sim: boolean
+  sim: boolean,
+  assistants: AgentAssistantTemplate[] | null = null
 ): [Record<string, any>, string] {
 
   const subs: Record<string, string> = { '{name}': topicInfo.name, '{statement}': topicInfo.statement }
@@ -107,6 +109,7 @@ export function buildExperiment(
     stageConfigs: stages,
     agentMediators: mediator ? [mediator] : [],
     agentParticipants: agents ?? [],
+    agentAssistants: assistants ?? [],
   }
   return [template, cohortAlias]
 }

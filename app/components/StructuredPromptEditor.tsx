@@ -11,6 +11,7 @@ export enum PromptItemType {
   TEXT = 'TEXT',
   CONTEXT = 'CONTEXT',
   PROFILE_INFO = 'PROFILE_INFO',
+  PARTICIPANT_INFO = 'PARTICIPANT_INFO',
   INITIALIZATION_CONTEXT = 'INITIALIZATION_CONTEXT',
   PRELOADED_CONTEXT='PRELOADED_CONTEXT',
   BIASED = 'BIASED',
@@ -34,6 +35,10 @@ export interface ContextPromptItem extends PromptItem {
 
 export interface ProfileInfoPromptItem extends PromptItem {
   type: PromptItemType.PROFILE_INFO
+}
+
+export interface ParticipantInfoPromptItem extends PromptItem {
+  type: PromptItemType.PARTICIPANT_INFO
 }
 
 export interface InitializationContextPromptItem extends PromptItem {
@@ -197,10 +202,14 @@ function AddMenu({ targetArr, textOnly, blocks = [] }: { targetArr: PromptItem[]
               <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.CONTEXT, context: 'current' } as ContextPromptItem)}>
                 Conversation Context
               </div>
-              {/* <div className="my-0.5 border-t border-neutral-700/60" />
+              <div className="my-0.5 border-t border-neutral-700/60" />
               <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.PROFILE_INFO } as ProfileInfoPromptItem)}>
                 Profile Info
-              </div> */}
+              </div>
+              <div className="my-0.5 border-t border-neutral-700/60" />
+              <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.PARTICIPANT_INFO } as ParticipantInfoPromptItem)}>
+                Participant Info
+              </div>
               <div className="my-0.5 border-t border-neutral-700/60" />
               <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.INITIALIZATION_CONTEXT } as InitializationContextPromptItem)}>
                 Initialization Result
@@ -324,12 +333,18 @@ function ItemEditor({ item }: { item: PromptItem }) {
           {(item as ContextPromptItem).context === 'before' ? 'Participant Initial Positions: the participants responses to the pre-conversation survey about the debate statement' : 'Conversation Context: the discussion up to this moment'}
         </div>
       )
-    // case PromptItemType.PROFILE_INFO:
-    //   return (
-    //     <div className="cursor-default rounded bg-[#f9d8f5] px-3 py-1.5 text-sm font-medium text-neutral-900">
-    //       Profile Info
-    //     </div>
-    //   )
+    case PromptItemType.PROFILE_INFO:
+      return (
+        <div className="cursor-default rounded bg-[#f9d8f5] px-3 py-1.5 text-sm font-medium text-neutral-900">
+          Profile Info
+        </div>
+      )
+    case PromptItemType.PARTICIPANT_INFO:
+      return (
+        <div className="cursor-default rounded bg-[#dce1fd] px-3 py-1.5 text-sm font-medium text-neutral-900">
+          Participant Info
+        </div>
+      )
     case PromptItemType.INITIALIZATION_CONTEXT:
     case PromptItemType.PRELOADED_CONTEXT:
       return (

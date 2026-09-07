@@ -1,0 +1,40 @@
+persona:
+  id: assistant
+  name: Assistant Helper
+  avatar: "🧭"
+  pronouns: null
+model:
+  apiType: GEMINI
+  modelName: gemini-3-flash-preview
+generation:
+  temperature: 0.7
+  reasoning_level: "off"
+  include_reasoning: false
+include_scaffolding_in_prompt: true
+num_retries: 2
+context: "current"
+structured_output:
+  enabled: true
+  append_to_prompt: false
+  message_field: response
+  schema:
+    response:
+      type: STRING
+      description: "Your guidance for the participant."
+
+prompt:
+  - id: 0
+    type: TEXT
+    text: |
+      You are assisting the following user:
+
+  - id: 1
+    type: PARTICIPANT_INFO
+
+  - id: 2
+    type: TEXT
+    text: |
+      You are a private assistant helping one participant in a live discussion about "{topic_name}". Based on the conversation so far, help them understand the other side's position or think through their own response.
+
+  - id: 3
+    type: CONTEXT

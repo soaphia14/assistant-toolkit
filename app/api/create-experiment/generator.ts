@@ -7,6 +7,8 @@ import {
 import { parseMediatorTemplate, buildMediator } from './parsers/mediator'
 import { buildAgent } from './parsers/agent'
 import type { AgentParticipantTemplate } from './parsers/agent'
+import { parseAssistantTemplate, buildAssistant } from './parsers/assistant'
+import type { AgentAssistantTemplate } from './parsers/assistant'
 import { buildTopic, buildStages, buildExperiment } from './parsers/experiment'
 import { parseSimulationTemplate, applySimulationToChatStage } from './parsers/simulation'
 import { loadTemplate, replaceDefaults, fillAgentStance, agentConfig, createParticipant, excludeNone, resolveBlockItems } from './utils'
@@ -77,7 +79,7 @@ const BIAS_VARIABLE_CONFIG = {
 
 export async function generate(p1: string, p2: string, experimentTemplatePath: string, mediatorTemplateContent: string | null,
                           mode: Mode, numCohorts?: number, numUtterances?: number, action?: 'create' | 'simulate',
-                          simulationTemplateContent?: string, numAgents?: number) {
+                          simulationTemplateContent?: string, numAgents?: number, assistantTemplateContent?: string) {
   // Optional: when the simulation toolkit supplies a template, it owns the chat
   // stage description (and the conversation limits) instead of the topic YAML.
   const simulation = simulationTemplateContent
@@ -109,6 +111,10 @@ export async function generate(p1: string, p2: string, experimentTemplatePath: s
   const mediatorR1 = mediatorTemplateContent
     ? buildMediator(chatStageId, parseMediatorTemplate(mediatorTemplateContent), stageIdsInOrder, topicInfo, simulation?.blocks ?? [])
     : null
+
+  const assistants: AgentAssistantTemplate[] = assistantTemplateContent
+    ? [buildAssistant(chatStageId, parseAssistantTemplate(assistantTemplateContent), stageIdsInOrder, topicInfo)]
+    : []
 
   const exp = experimentTemplate.experiment ?? {}
   const participantSlots = participantSlotsFor(mode, numAgents)
@@ -186,7 +192,7 @@ export async function generate(p1: string, p2: string, experimentTemplatePath: s
 
   const agents = cohortAgents.flat() 
 
-  const [template, cohortAlias] = buildExperiment(experimentTemplate, topicInfo, stages, stageIdsInOrder, mediatorR1, agents, mode, isSim)
+  const [template, cohortAlias] = buildExperiment(experimentTemplate, topicInfo, stages, stageIdsInOrder, mediatorR1, agents, mode, isSim, assistants)
   // Nothing to randomize a bias for when the run has no mediator.
   template.experiment.variableConfigs = mediatorR1 ? [BIAS_VARIABLE_CONFIG] : []
 
