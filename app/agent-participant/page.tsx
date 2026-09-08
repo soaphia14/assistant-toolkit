@@ -297,6 +297,8 @@ export default function AgentParticipantsPage() {
 
   function deletePrompt(name: string) {
     if (Object.keys(promptMap).length <= 1) return
+    // The prompt that sends to the chat is required and can never be removed.
+    if (promptMap[name]?.addTo === MESSAGE_SENTINEL) return
     updateAgentData(data => {
       delete data.chatSettings.promptMap[name]
       for (const entry of Object.values(data.chatSettings.promptMap)) {
@@ -633,7 +635,7 @@ export default function AgentParticipantsPage() {
                     onClick={() => setActivePromptType('character')}
                     className={`px-4 py-2.5 text-sm font-medium transition-colors ${activePromptType === 'character' ? 'text-neutral-100' : 'text-neutral-500 hover:text-neutral-300'}`}
                   >
-                    Character
+                    Character Update
                   </button>
                   <button
                     type="button"
@@ -652,7 +654,7 @@ export default function AgentParticipantsPage() {
                     onClick={() => setActivePromptType('thought')}
                     className={`px-4 py-2.5 text-sm font-medium transition-colors ${activePromptType === 'thought' ? 'text-neutral-100' : 'text-neutral-500 hover:text-neutral-300'}`}
                   >
-                    Thought
+                    Thought Generation
                   </button>
                   <button
                     type="button"
@@ -703,7 +705,7 @@ export default function AgentParticipantsPage() {
                                 </span>
                               )}
 
-                              {promptNames.length > 1 && (
+                              {promptMap[name].addTo !== MESSAGE_SENTINEL && (
                                 <button
                                   onClick={e => { e.stopPropagation(); deletePrompt(name) }}
                                   className="hover:text-red-300 cursor-pointer"
@@ -728,63 +730,56 @@ export default function AgentParticipantsPage() {
                     {activeEntry && activeMessageName && (
                       <>
                         {/* Order / add to */}
-                        <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
-
-                          <div className="mb-4">
+                        {activeEntry.addTo === MESSAGE_SENTINEL ? (
+                          <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
                             <h3 className="text-sm font-medium text-neutral-300">Prompt Execution</h3>
-                            <p className="text-xs text-neutral-500 mt-1">Prompts with the same order run at the same time.</p>
+                            <p className="text-xs text-neutral-500 mt-1">
+                              This prompt sends its output to the chat, so it's required and always runs last — order and add-to aren't configurable for it.
+                            </p>
                           </div>
+                        ) : (
+                          <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
 
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-                            <div className="space-y-1.5">
-                              <label className="text-sm font-medium text-neutral-300">Order</label>
-                              <p className="text-xs text-neutral-500">
-                                {activeEntry.addTo === MESSAGE_SENTINEL
-                                  ? "Kept last automatically — this prompt sends to the chat, so it always runs after everything else."
-                                  : 'Determines when this prompt runs.'}
-                              </p>
-                              <input
-                                type="number"
-                                min={1}
-                                step={1}
-                                value={activeEntry.order}
-                                disabled={activeEntry.addTo === MESSAGE_SENTINEL}
-                                onChange={e => updatePromptOrder(activeMessageName, Number(e.target.value))}
-                                className="w-full px-3 py-2 rounded-md border border-neutral-700 bg-neutral-900 text-sm text-neutral-200 focus:outline-none focus:border-neutral-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                              />
+                            <div className="mb-4">
+                              <h3 className="text-sm font-medium text-neutral-300">Prompt Execution</h3>
+                              <p className="text-xs text-neutral-500 mt-1">Prompts with the same order run at the same time.</p>
                             </div>
 
-                            <div className="space-y-1.5">
-                              <label className="text-sm font-medium text-neutral-300">Add to</label>
-                              <p className="text-xs text-neutral-500">
-                                {activeEntry.addTo === MESSAGE_SENTINEL
-                                  ? "Locked — this is the prompt that sends to the chat. Delete it to let another prompt take over that role."
-                                  : "Prepend this prompt's output to a later prompt."}
-                              </p>
-                              <select
-                                value={activeEntry.addTo ?? ''}
-                                disabled={activeEntry.addTo === MESSAGE_SENTINEL}
-                                onChange={e => setPromptAddTo(activeMessageName, e.target.value)}
-                                className="w-full px-3 py-2 rounded-md border border-neutral-700 bg-neutral-900 text-sm text-neutral-200 focus:outline-none focus:border-neutral-500 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                              >
-                                {activeEntry.addTo === MESSAGE_SENTINEL ? (
-                                  <option value={MESSAGE_SENTINEL}>Message (send to chat)</option>
-                                ) : (
-                                  <>
-                                    <option value="">None</option>
-                                    {promptNames
-                                      .filter(n => n !== activeMessageName && promptMap[n].order > activeEntry.order)
-                                      .map(n => (
-                                        <option key={n} value={n}>{n} (Order {promptMap[n].order})</option>
-                                      ))}
-                                  </>
-                                )}
-                              </select>
-                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
 
+                              <div className="space-y-1.5">
+                                <label className="text-sm font-medium text-neutral-300">Order</label>
+                                <p className="text-xs text-neutral-500">Determines when this prompt runs.</p>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  step={1}
+                                  value={activeEntry.order}
+                                  onChange={e => updatePromptOrder(activeMessageName, Number(e.target.value))}
+                                  className="w-full px-3 py-2 rounded-md border border-neutral-700 bg-neutral-900 text-sm text-neutral-200 focus:outline-none focus:border-neutral-500"
+                                />
+                              </div>
+
+                              <div className="space-y-1.5">
+                                <label className="text-sm font-medium text-neutral-300">Add to</label>
+                                <p className="text-xs text-neutral-500">Prepend this prompt's output to a later prompt.</p>
+                                <select
+                                  value={activeEntry.addTo ?? ''}
+                                  onChange={e => setPromptAddTo(activeMessageName, e.target.value)}
+                                  className="w-full px-3 py-2 rounded-md border border-neutral-700 bg-neutral-900 text-sm text-neutral-200 focus:outline-none focus:border-neutral-500 cursor-pointer"
+                                >
+                                  <option value="">None</option>
+                                  {promptNames
+                                    .filter(n => n !== activeMessageName && promptMap[n].order > activeEntry.order)
+                                    .map(n => (
+                                      <option key={n} value={n}>{n} (Order {promptMap[n].order})</option>
+                                    ))}
+                                </select>
+                              </div>
+
+                            </div>
                           </div>
-                        </div>
+                        )}
 
                         {/* Block editor */}
                         <PromptEditorDescription
@@ -808,38 +803,38 @@ export default function AgentParticipantsPage() {
 
                 {activePromptType === 'character' && (
                   <div className="space-y-4">
-                    <PromptEditorDescription description="Define the character the agent should portray during the discussion. Toggle it on above to enable it." />
+                    <PromptEditorDescription description="Updates the character of the agent for each message. Toggle it on above to enable it." />
                     {characterEnabled ? (
                       <>
                         <PromptBlockLegend />
                         <StructuredPromptEditor
-                          label="Character Prompt"
+                          label="Character Update Prompt"
                           prompt={agentParsed?.chatSettings?.characterPrompt ?? []}
                           stageId=""
                           onUpdate={updateCharacterBlocks}
                         />
                       </>
                     ) : (
-                      <p className="text-sm text-neutral-500">Disabled — toggle it on above to write a character prompt.</p>
+                      <p className="text-sm text-neutral-500">Disabled — toggle it on above to write a character update prompt.</p>
                     )}
                   </div>
                 )}
 
                 {activePromptType === 'thought' && (
                   <div className="space-y-4">
-                    <PromptEditorDescription description="Define the agent's thought history. Toggle it on above to enable it." />
+                    <PromptEditorDescription description="Generates a new thought to be added to the agent's thought history. Toggle it on above to enable it." />
                     {thoughtEnabled ? (
                       <>
                         <PromptBlockLegend />
                         <StructuredPromptEditor
-                          label="Thought Prompt"
+                          label="Thought Generation Prompt"
                           prompt={agentParsed?.chatSettings?.thoughtPrompt ?? []}
                           stageId=""
                           onUpdate={updateThoughtBlocks}
                         />
                       </>
                     ) : (
-                      <p className="text-sm text-neutral-500">Disabled — toggle it on above to write a thought prompt.</p>
+                      <p className="text-sm text-neutral-500">Disabled — toggle it on above to write a thought generation prompt.</p>
                     )}
                   </div>
                 )}
