@@ -7,7 +7,7 @@ if (!getApps().length) {
   // real service account — only load one when actually talking to production.
   const usingEmulator = !!process.env.FIRESTORE_EMULATOR_HOST || !!process.env.FIREBASE_AUTH_EMULATOR_HOST
   if (usingEmulator) {
-    initializeApp({ projectId: 'convoarena-assistant' })
+    initializeApp({ projectId: 'convoarenadev' })
   } else {
     const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT!)
     initializeApp({ credential: cert(serviceAccount) })
