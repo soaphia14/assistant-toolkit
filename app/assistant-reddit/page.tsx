@@ -40,14 +40,14 @@ function PromptBlockLegend() {
         <span>the body text of that Reddit post</span>
         {legend('bg-[#fde8c8]', 'Rule')}
         <span>a dropdown to pick which subreddit rule (A-E, 1-5) applies</span>
-        {legend('bg-[#fde8c8]', 'Participant Role')}
-        <span>whether the assisted participant is OP or Challenger</span>
+        {legend('bg-[#fde8c8]', 'User Role')}
+        <span>whether the assisted user is OP or Challenger</span>
         {legend('bg-[#dce1fd]', 'Conversation Context')}
         <span>the discussion up to this moment</span>
-        {legend('bg-[#dce1fd]', 'Participant Info')}
-        <span>the assisted participant's profile info</span>
-        {legend('bg-[#dce1fd]', 'Participant Chat Input')}
-        <span>the participant's current, unsent chat draft</span>
+        {legend('bg-[#dce1fd]', 'User Info')}
+        <span>the assisted user's profile info</span>
+        {legend('bg-[#dce1fd]', 'User Chat Input')}
+        <span>the user's current, unsent chat draft</span>
       </div>
     </div>
   )
@@ -388,7 +388,7 @@ export default function AssistantPage() {
             <div className="border-b border-neutral-800 pb-3">
               <h2 className="text-lg font-semibold tracking-tight">Prompt Editors</h2>
             </div>
-            <p className="text-sm text-neutral-500">Here you can edit the prompts that guide your assistant. The <span className="text-neutral-400">Assistant Prompt</span> controls the guidance it sends the participant; the <span className="text-neutral-400">Should Intervene</span> prompt decides whether now is a good time to send it.</p>
+            <p className="text-sm text-neutral-500">Here you can edit the prompts that guide your assistant. The <span className="text-neutral-400">Assistant Prompt</span> controls the guidance it sends the user; the <span className="text-neutral-400">Should Intervene</span> prompt decides whether now is a good time to send it.</p>
 
             <div className="rounded-lg border border-neutral-800">
               <div className="flex border-b border-neutral-800 bg-neutral-900/60">
@@ -405,7 +405,7 @@ export default function AssistantPage() {
               <div className="p-4">
                 {activePromptTab === 'response' ? (
                   <div className="space-y-4">
-                    <PromptEditorDescription description="A prompt that determines how your assistant privately helps a single participant during the discussion. The assistant only responds to that participant — it never posts to the shared conversation. It generates a message every time the Should Intervene Prompt decides the assistant should respond." />
+                    <PromptEditorDescription description="A prompt that determines how your assistant privately helps a single user during the discussion. The assistant only responds to that user — it never posts to the shared conversation. It generates a message every time the Should Intervene Prompt decides the assistant should respond." />
                     <PromptBlockLegend />
                     <StructuredPromptEditor
                       label="Assistant Prompt Editor"
@@ -417,7 +417,7 @@ export default function AssistantPage() {
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    <PromptEditorDescription description="Your assistant uses this prompt after each update to the participant's draft or the conversation to decide whether this is a good time to offer guidance. When the response is true, the assistant uses the Assistant Prompt to generate a message; when false, it displays 'Nothing further to add at this point in the conversation.''." />
+                    <PromptEditorDescription description="Your assistant uses this prompt after each update to the user's draft or the conversation to decide whether this is a good time to offer guidance. When the response is true, the assistant uses the Assistant Prompt to generate a message; when false, it displays 'Nothing further to add at this point in the conversation.''." />
                     <PromptBlockLegend />
                     <StructuredPromptEditor
                       label="Should Intervene Prompt Editor"
@@ -457,7 +457,7 @@ export default function AssistantPage() {
             <h2 className="text-lg font-semibold tracking-tight">Assistant Testing</h2>
           </div>
           <p className="text-xs text-neutral-500">
-            Names follow (participant 1 - participant 2), e.g. "human-agent" means participant 1 is human and participant 2 is an agent participant.
+            Names follow (user 1 - user 2), e.g. "human-agent" means user 1 is human and user 2 is an agent user.
           </p>
           <div className="space-y-3">
             <ActionButton
@@ -585,8 +585,8 @@ export default function AssistantPage() {
           <p className="text-sm font-medium text-neutral-300">OP in conversation:</p>
           <div className="space-y-2">
             {([
-              { value: 'participant-1', label: 'Participant 1' },
-              { value: 'participant-2', label: 'Participant 2' },
+              { value: 'participant-1', label: 'User 1' },
+              { value: 'participant-2', label: 'User 2' },
             ] as const).map(option => (
               <div
                 key={option.value}
@@ -614,8 +614,8 @@ export default function AssistantPage() {
           <p className="text-sm font-medium text-neutral-300">Assistant given to:</p>
           <div className="space-y-2">
             {([
-              { checked: p1HasAssistant, setChecked: setP1HasAssistant, label: 'Participant 1' },
-              { checked: p2HasAssistant, setChecked: setP2HasAssistant, label: 'Participant 2' },
+              { checked: p1HasAssistant, setChecked: setP1HasAssistant, label: 'User 1' },
+              { checked: p2HasAssistant, setChecked: setP2HasAssistant, label: 'User 2' },
             ] as const).map(option => (
               <label
                 key={option.label}
