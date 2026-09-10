@@ -37,7 +37,22 @@ export interface InitializationContextPromptItem {
   type: 'INITIALIZATION_CONTEXT'
 }
 
-export type PromptItem = StageContextItem | TextPromptItem | ProfileInfoPromptItem | ParticipantInfoPromptItem | ParticipantChatInputPromptItem | ProfileContextPromptItem | InitializationContextPromptItem
+export interface PromptOutputPromptItem {
+  type: 'PROMPT_OUTPUT'
+  promptId: string
+}
+
+export interface CharacterContextPromptItem {
+  type: 'CHARACTER_CONTEXT'
+  stageIds: string[]
+}
+
+export interface ThoughtHistoryContextPromptItem {
+  type: 'THOUGHT_HISTORY_CONTEXT'
+  stageIds: string[]
+}
+
+export type PromptItem = StageContextItem | TextPromptItem | ProfileInfoPromptItem | ParticipantInfoPromptItem | ParticipantChatInputPromptItem | ProfileContextPromptItem | InitializationContextPromptItem | PromptOutputPromptItem | CharacterContextPromptItem | ThoughtHistoryContextPromptItem
 
 export interface StructuredOutputSchemaProperty {
   name: string
@@ -127,6 +142,12 @@ export function buildPromptItems(tpl: Record<string, any>, stageId: string, stag
       items.push({ type: 'PROFILE_CONTEXT' })
     } else if (kind === 'INITIALIZATION_CONTEXT' || kind === 'PRELOADED_CONTEXT') {
       items.push({ type: 'INITIALIZATION_CONTEXT' })
+    } else if (kind === 'PROMPT_OUTPUT') {
+      items.push({ type: 'PROMPT_OUTPUT', promptId: promptItem.promptId })
+    } else if (kind === 'CHARACTER_CONTEXT') {
+      items.push({ type: 'CHARACTER_CONTEXT', stageIds: [stageId] })
+    } else if (kind === 'THOUGHT_HISTORY_CONTEXT') {
+      items.push({ type: 'THOUGHT_HISTORY_CONTEXT', stageIds: [stageId] })
     } else if (kind === 'TEXT') {
       items.push({ type: 'TEXT', text: promptItem.text })
     } else if (kind === 'BIASED') {
@@ -143,7 +164,7 @@ export function buildPromptItems(tpl: Record<string, any>, stageId: string, stag
     } else if (kind === 'ARTICLE_PAGE') {
       items.push({ type: 'TEXT', text: `${postTitle ?? ''}\n${postDescription ?? ''}` })
     } else {
-      throw new Error(`Unknown prompt item type ${kind}. Must be 'CONTEXT', 'PROFILE_INFO', 'PARTICIPANT_INFO', 'PARTICIPANT_CHAT_INPUT', 'PROFILE_CONTEXT', 'INITIALIZATION_CONTEXT', 'BIASED', 'POST_TITLE', 'POST_DESCRIPTION', 'RULE', 'PARTICIPANT_ROLE', 'ARTICLE_PAGE' or 'TEXT'.`)
+      throw new Error(`Unknown prompt item type ${kind}. Must be 'CONTEXT', 'PROFILE_INFO', 'PARTICIPANT_INFO', 'PARTICIPANT_CHAT_INPUT', 'PROFILE_CONTEXT', 'INITIALIZATION_CONTEXT', 'PROMPT_OUTPUT', 'CHARACTER_CONTEXT', 'THOUGHT_HISTORY_CONTEXT', 'BIASED', 'POST_TITLE', 'POST_DESCRIPTION', 'RULE', 'PARTICIPANT_ROLE', 'ARTICLE_PAGE' or 'TEXT'.`)
     }
   }
   return [...items, ...stageSpecificPrompts]

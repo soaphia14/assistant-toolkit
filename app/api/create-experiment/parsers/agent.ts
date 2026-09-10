@@ -143,39 +143,35 @@ function _post_survey_stage(tpl: Record<string, any>, stageId: string, stageIdsI
 
 
 
-// ── New schema: order/addTo prompt graph ───────────────────────────────────────
+// ── New schema: order/prompt-output prompt graph ────────────────────────────────
 //
 // The Agent Participant toolkit page authors templates in this shape instead of
 // the flat `prompt` + plain-string-prompt legacy shape above. Its `chatSettings`
 // carries a `promptMap` of named, independently block-edited prompts, each with
-// an `order` (prompts sharing an order run in parallel) and an `addTo` (either
-// another prompt name with a strictly greater order, whose prompt this one's
-// output is prepended to, or the sentinel "message" once the chain is meant to
-// be sent to chat). `thoughtPrompt`/`characterPrompt` are separate, optional,
-// single block lists (null when disabled) outside that graph.
+// an `order` (prompts sharing an order run in parallel); a prompt can pull in
+// the output of any prompt with a strictly smaller order via a PROMPT_OUTPUT
+// block naming it. The prompt keyed "message" is the one sent to chat, and is
+// always kept at the final rank. `initializationPrompt`/`thoughtPrompt`/
+// `characterPrompt` are separate, optional, single block lists (null when
+// disabled) outside that graph, made available to other prompts via
+// INITIALIZATION_CONTEXT/CHARACTER_CONTEXT/THOUGHT_HISTORY_CONTEXT blocks.
 
 function _newChatPrompt(tpl: Record<string, any>, stageId: string, stageIdsInOrder: string[]): Record<string, any> {
   const cs = tpl.chatSettings ?? {}
-  const promptMap: Record<string, { order?: number; addTo?: string | null; prompt?: any[] }> = cs.promptMap ?? {}
+  const promptMap: Record<string, { order?: number; prompt?: any[] }> = cs.promptMap ?? {}
 
   const prompt: Record<string, any[]> = {}
   const order: Record<number, string[]> = {}
-  const addTo: Record<string, string[]> = {}
 
-  // addTo is keyed by the RECEIVING prompt, with the list holding the names
-  // of the prompts whose output gets appended to it — i.e. addTo[target]
-  // includes every prompt that sends its output to target. That's the
-  // inverse of how each entry stores its own single `addTo` target, so it
-  // has to be inverted here.
   for (const [name, entry] of Object.entries(promptMap)) {
     prompt[name] = buildPromptItems({ prompt: entry.prompt ?? [], context: cs.context }, stageId, stageIdsInOrder)
     const group = entry.order ?? 1
     ;(order[group] ??= []).push(name)
-    if (entry.addTo) {
-      (addTo[entry.addTo] ??= []).push(name)
-    }
   }
 
+  const initializationContextPrompt = Array.isArray(cs.initializationPrompt)
+    ? buildPromptItems({ prompt: cs.initializationPrompt, context: cs.context }, stageId, stageIdsInOrder)
+    : undefined
   const thoughtPrompt = Array.isArray(cs.thoughtPrompt)
     ? buildPromptItems({ prompt: cs.thoughtPrompt, context: cs.context }, stageId, stageIdsInOrder)
     : undefined
@@ -188,7 +184,6 @@ function _newChatPrompt(tpl: Record<string, any>, stageId: string, stageIdsInOrd
     type: 'chat',
     prompt,
     order,
-    addTo,
     includeScaffoldingInPrompt: cs.includeScaffoldingInPrompt,
     numRetries: cs.numRetries,
     generationConfig: tpl.generation ? {
@@ -204,10 +199,9 @@ function _newChatPrompt(tpl: Record<string, any>, stageId: string, stageIdsInOrd
       initialMessage: cs.initialMessage,
       wordsPerMinute: cs.wordsPerMinute,
     },
+    initializationContextPrompt,
     thoughtPrompt,
     characterPrompt,
-    includePersona: [stageId],
-    includeThoughtHistory: [stageId],
   }
 }
 

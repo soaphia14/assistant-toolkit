@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { Fragment, useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { auth } from '../lib/firebase'
@@ -19,55 +19,49 @@ const idle: ActionState = { status: 'idle', result: null }
 // ============================================================
 // Data shape
 //
-// Message-creation prompts live in an order/add_to graph (matching the
-// platform's ChatPromptConfig.prompt/order/addTo dicts): prompts sharing an
-// `order` run in parallel; before a prompt with a strictly greater order
-// runs, any prompt whose `addTo` points at it has its output prepended to
-// it. A prompt whose `addTo` is the "message" sentinel is one whose output
-// is sent to the chat once it finishes. Thought and Character are separate,
-// optional, single block-prompts outside that graph.
+// Message-creation prompts live in an order graph (matching the platform's
+// ChatPromptConfig.prompt/order dicts): prompts sharing an `order` run in
+// parallel; a prompt can pull in the output of any prompt with a strictly
+// smaller order by adding a "Prompt Output" block that names it. The prompt
+// keyed literally "message" is the one whose output is sent to the chat —
+// it's required, can't be renamed or deleted, and is always kept at the
+// final rank so every other prompt is available to it. Thought and
+// Character are separate, optional, single block-prompts outside that
+// graph; Initialization is a third such optional block-prompt, and its
+// output can be pulled into every other prompt (message-creation, Thought,
+// and Character alike) via an "Initialization Result" block.
 // ============================================================
 
-const MESSAGE_SENTINEL = 'message'
+const MESSAGE_KEY = 'message'
 
 type PromptMapEntry = {
   order: number
-  addTo: string | null
   prompt: PromptItem[]
 }
 
-// There's no separate, distinct "message creation prompt" — whichever
-// prompt(s) send to "Message" ARE the ones that produce the chat message,
-// and that only makes sense as the final step, so they must always sit at
-// the highest order. Rather than leaving raw order numbers to drift and
-// accumulate gaps as prompts are added/removed/reordered, every edit
-// re-compacts everything to clean, contiguous ranks (1, 2, 3, ...) —
-// preserving ties (parallel stages) and relative sequence — with the
-// "Message" prompt(s) always landing on the final rank.
+// Strips any "Prompt Output" blocks that no longer point at a name that
+// still exists with a strictly smaller order — e.g. after a delete, rename,
+// or reorder invalidates the reference.
+function pruneInvalidPromptOutputs(map: Record<string, PromptMapEntry>) {
+  for (const entry of Object.values(map)) {
+    entry.prompt = entry.prompt.filter(item => {
+      if (item.type !== 'PROMPT_OUTPUT') return true
+      const target = map[(item as unknown as { promptId: string }).promptId]
+      return target !== undefined && target.order < entry.order
+    })
+  }
+}
+
+// Rather than leaving raw order numbers to drift and accumulate gaps as
+// prompts are added/removed/reordered, every edit re-compacts everything to
+// clean, contiguous ranks (1, 2, 3, ...) — preserving ties (parallel stages)
+// and relative sequence — with the required "message" prompt always landing
+// on the final rank so it can reference any other prompt's output.
 function normalizeOrders(map: Record<string, PromptMapEntry> | undefined) {
   if (!map) return
   const names = Object.keys(map)
   if (names.length === 0) return
-  let terminalNames = names.filter(n => map[n].addTo === MESSAGE_SENTINEL)
-
-  // Exactly one prompt sends to the chat at all times — it's not a per-prompt
-  // choice that can be toggled off or shared. If none currently holds it
-  // (its previous holder was just deleted), whichever was already ordered
-  // last inherits it. If more than one ended up marked that way (e.g. from
-  // an uploaded YAML), keep just the one ordered last and clear the rest.
-  if (terminalNames.length === 0) {
-    const promoted = names.reduce((a, b) => (map[a].order ?? 1) >= (map[b].order ?? 1) ? a : b)
-    map[promoted].addTo = MESSAGE_SENTINEL
-    terminalNames = [promoted]
-  } else if (terminalNames.length > 1) {
-    const keep = terminalNames.reduce((a, b) => (map[a].order ?? 1) >= (map[b].order ?? 1) ? a : b)
-    for (const n of terminalNames) {
-      if (n !== keep) map[n].addTo = null
-    }
-    terminalNames = [keep]
-  }
-
-  const otherNames = names.filter(n => !terminalNames.includes(n))
+  const otherNames = names.filter(n => n !== MESSAGE_KEY)
 
   const distinctOrders = Array.from(new Set(otherNames.map(n => map[n].order ?? 1))).sort((a, b) => a - b)
   const rankOf = new Map(distinctOrders.map((value, i) => [value, i + 1]))
@@ -76,10 +70,11 @@ function normalizeOrders(map: Record<string, PromptMapEntry> | undefined) {
     map[n].order = rankOf.get(map[n].order ?? 1)!
   }
 
-  const lastRank = distinctOrders.length + 1
-  for (const n of terminalNames) {
-    map[n].order = lastRank
+  if (map[MESSAGE_KEY]) {
+    map[MESSAGE_KEY].order = distinctOrders.length + 1
   }
+
+  pruneInvalidPromptOutputs(map)
 }
 
 type AgentTemplate = {
@@ -94,6 +89,7 @@ type AgentTemplate = {
     numRetries: number
     context: string
     promptMap: Record<string, PromptMapEntry>
+    initializationPrompt: PromptItem[] | null
     thoughtPrompt: PromptItem[] | null
     characterPrompt: PromptItem[] | null
   }
@@ -108,12 +104,22 @@ function PromptEditorDescription({ description }: { description: string }) {
   )
 }
 
-function PromptBlockLegend() {
-  const legend = (color: string, title: string, text: string) => (
-    <>
+function PromptBlockLegend({
+  showInitializationContext,
+  showCharacterContext,
+  showThoughtHistoryContext,
+  promptOutputOptions = [],
+}: {
+  showInitializationContext?: boolean
+  showCharacterContext?: boolean
+  showThoughtHistoryContext?: boolean
+  promptOutputOptions?: { id: string; label: string }[]
+}) {
+  const legend = (key: string, color: string, title: string, text: string) => (
+    <Fragment key={key}>
       <span className={`inline-block rounded px-2 py-0.5 font-medium text-neutral-900 ${color}`}>{title}</span>
       <span>{text}</span>
-    </>
+    </Fragment>
   )
 
   return (
@@ -122,15 +128,18 @@ function PromptBlockLegend() {
       <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 items-center">
         <span className="font-medium text-neutral-300">Freeform Text</span>
         <span>Custom instructions written directly by you.</span>
-        {legend('bg-[#fde8c8]', 'Debate Topic', 'The topic of the debate.')}
-        {legend('bg-[#fde8c8]', 'Debate Statement', 'The statement participants take a position on.')}
-        {legend('bg-[#dce1fd]', 'Participant Initial Positions', "The participants' pre-conversation survey responses.")}
-        {legend('bg-[#dce1fd]', 'Conversation Context', 'The discussion up to the current message.')}
-        {legend('bg-[#f9d8f5]', 'Profile Info', "This agent's own profile data.")}
-        {legend('bg-[#dce1fd]', 'Participant Info', "The other participant's profile data.")}
-        {legend('bg-[#dce1fd]', 'Participant Chat Input', "The other participant's current, unsent chat draft.")}
-        {legend('bg-[#d8f9e0]', 'Initialization Result', 'The output of the initialization prompt.')}
-        {legend('bg-[#f08673]', 'Target Bias Position', 'The direction of covert influence, if used.')}
+        {legend('debate-topic', 'bg-[#fde8c8]', 'Debate Topic', 'The topic of the debate.')}
+        {legend('debate-statement', 'bg-[#fde8c8]', 'Debate Statement', 'The statement participants take a position on.')}
+        {legend('initial-positions', 'bg-[#dce1fd]', 'Participant Initial Positions', "The participants' pre-conversation survey responses.")}
+        {legend('conversation-context', 'bg-[#dce1fd]', 'Conversation Context', 'The discussion up to the current message.')}
+        {legend('profile-info', 'bg-[#f9d8f5]', 'Profile Info', "This agent's own profile data.")}
+        {legend('participant-info', 'bg-[#dce1fd]', 'Participant Info', "The other participant's profile data.")}
+        {legend('participant-chat-input', 'bg-[#dce1fd]', 'Participant Chat Input', "The other participant's current, unsent chat draft.")}
+        {showInitializationContext && legend('initialization-result', 'bg-[#d8f9e0]', 'Initialization Result', 'The output of the initialization prompt.')}
+        {showCharacterContext && legend('character', 'bg-[#f9e0d8]', 'Character', "The agent's current character.")}
+        {showThoughtHistoryContext && legend('thought-history', 'bg-[#d8f0f9]', 'Thought History', "The agent's thought history.")}
+        {promptOutputOptions.map(opt => legend(`prompt-output-${opt.id}`, 'bg-[#e0d8f9]', `Output: ${opt.label}`, `The output of the "${opt.label}" prompt.`))}
+        {legend('target-bias', 'bg-[#f08673]', 'Target Bias Position', 'The direction of covert influence, if used.')}
       </div>
     </div>
   )
@@ -150,12 +159,12 @@ function makeDefaultTemplate(userEmail: string | null): AgentTemplate {
       numRetries: 2,
       context: 'all',
       promptMap: {
-        'Message Creation Prompt': {
+        [MESSAGE_KEY]: {
           order: 1,
-          addTo: MESSAGE_SENTINEL,
           prompt: [{ type: 'CONTEXT', context: 'current' } as PromptItem],
         },
       },
+      initializationPrompt: null,
       thoughtPrompt: null,
       characterPrompt: null,
     },
@@ -177,7 +186,7 @@ export default function AgentParticipantsPage() {
   const [agentData, setAgentData] = useState<string | null>(() => JSON.stringify(makeDefaultTemplate(null), null, 2))
   const [dirty, setDirty] = useState(false)
 
-  const [activePromptType, setActivePromptType] = useState<'message' | 'character' | 'thought'>('message')
+  const [activePromptType, setActivePromptType] = useState<'message' | 'initialization' | 'character' | 'thought'>('message')
   const [activeMessageName, setActiveMessageName] = useState<string | null>(
     () => Object.keys(makeDefaultTemplate(null).chatSettings.promptMap)[0] ?? null,
   )
@@ -239,9 +248,8 @@ export default function AgentParticipantsPage() {
     if (Object.keys(agentParsed.chatSettings.promptMap ?? {}).length > 0) return
     updateAgentData(data => {
       data.chatSettings.promptMap = {
-        'Message Creation Prompt': {
+        [MESSAGE_KEY]: {
           order: 1,
-          addTo: MESSAGE_SENTINEL,
           prompt: [{ type: 'CONTEXT', context: 'current' } as PromptItem],
         },
       }
@@ -256,6 +264,18 @@ export default function AgentParticipantsPage() {
   }, [promptNames, activeMessageName, promptMap])
 
   const activeEntry = activeMessageName ? promptMap[activeMessageName] : undefined
+
+  // Every prompt with a strictly smaller order than the active one — these
+  // are the only prompts whose output the active one can pull in with a
+  // Prompt Output block.
+  const activePromptOutputOptions = useMemo(
+    () => (activeEntry && activeMessageName
+      ? promptNames
+        .filter(n => n !== activeMessageName && promptMap[n].order < activeEntry.order)
+        .map(n => ({ id: n, label: n === MESSAGE_KEY ? 'Message' : n }))
+      : []),
+    [activeEntry, activeMessageName, promptNames, promptMap],
+  )
 
   function updateAgentData(mutate: (data: AgentTemplate) => void) {
     setAgentData(prev => {
@@ -281,14 +301,14 @@ export default function AgentParticipantsPage() {
     let n = names.length + 1
     let name = `New Prompt ${n}`
     while (promptMap[name]) { n++; name = `New Prompt ${n}` }
-    // Land it right before whichever prompt sends to the chat — order gets
-    // fully re-compacted right after anyway, so this just needs to sit after
-    // every other non-message prompt.
+    // Land it right before the required "message" prompt — order gets fully
+    // re-compacted right after anyway, so this just needs to sit after every
+    // other non-message prompt.
     const otherMax = names
-      .filter(k => promptMap[k].addTo !== MESSAGE_SENTINEL)
+      .filter(k => k !== MESSAGE_KEY)
       .reduce((m, k) => Math.max(m, promptMap[k]?.order ?? 1), 0)
     updateAgentData(data => {
-      data.chatSettings.promptMap[name] = { order: otherMax + 1, addTo: null, prompt: [] }
+      data.chatSettings.promptMap[name] = { order: otherMax + 1, prompt: [] }
     })
     setActiveMessageName(name)
     setEditingName(name)
@@ -296,14 +316,10 @@ export default function AgentParticipantsPage() {
   }
 
   function deletePrompt(name: string) {
-    if (Object.keys(promptMap).length <= 1) return
     // The prompt that sends to the chat is required and can never be removed.
-    if (promptMap[name]?.addTo === MESSAGE_SENTINEL) return
+    if (name === MESSAGE_KEY) return
     updateAgentData(data => {
       delete data.chatSettings.promptMap[name]
-      for (const entry of Object.values(data.chatSettings.promptMap)) {
-        if ((entry as PromptMapEntry).addTo === name) (entry as PromptMapEntry).addTo = null
-      }
     })
     if (activeMessageName === name) {
       const remaining = promptNames.filter(n => n !== name)
@@ -312,16 +328,23 @@ export default function AgentParticipantsPage() {
   }
 
   function commitRename(oldName: string) {
+    // The "message" prompt's name is what the platform looks for — it can't
+    // be renamed.
+    if (oldName === MESSAGE_KEY) { setEditingName(null); return }
     const trimmed = draftName.trim()
     setEditingName(null)
-    if (!trimmed || trimmed === oldName || promptMap[trimmed]) return
+    if (!trimmed || trimmed === oldName || trimmed === MESSAGE_KEY || promptMap[trimmed]) return
     updateAgentData(data => {
       const map = data.chatSettings.promptMap
       const entry = map[oldName]
       delete map[oldName]
       map[trimmed] = entry
       for (const e of Object.values(map)) {
-        if ((e as PromptMapEntry).addTo === oldName) (e as PromptMapEntry).addTo = trimmed
+        for (const item of e.prompt) {
+          if (item.type !== 'PROMPT_OUTPUT') continue
+          const io = item as unknown as { promptId: string }
+          if (io.promptId === oldName) io.promptId = trimmed
+        }
       }
     })
     setActiveMessageName(trimmed)
@@ -333,30 +356,6 @@ export default function AgentParticipantsPage() {
       const map = data.chatSettings.promptMap
       if (!map[name]) return
       map[name].order = order
-
-      // Drop add_to links that no longer point strictly forward — a prompt
-      // can only feed a prompt with a later order (or the "message" sentinel,
-      // which has no order and is always valid).
-      for (const entry of Object.values(map)) {
-        const e = entry as PromptMapEntry
-        if (!e.addTo || e.addTo === MESSAGE_SENTINEL) continue
-        const target = map[e.addTo]
-        if (!target || target.order <= e.order) e.addTo = null
-      }
-    })
-  }
-
-  function setPromptAddTo(name: string, addTo: string) {
-    updateAgentData(data => {
-      const map = data.chatSettings.promptMap
-      if (addTo === MESSAGE_SENTINEL) {
-        // Only one prompt can send to the chat at a time — claiming it here
-        // takes it away from whichever prompt held it before.
-        for (const key of Object.keys(map)) {
-          if (key !== name && map[key].addTo === MESSAGE_SENTINEL) map[key].addTo = null
-        }
-      }
-      map[name].addTo = addTo || null
     })
   }
 
@@ -366,8 +365,19 @@ export default function AgentParticipantsPage() {
     })
   }
 
+  const initializationEnabled = Array.isArray(agentParsed?.chatSettings?.initializationPrompt)
   const characterEnabled = Array.isArray(agentParsed?.chatSettings?.characterPrompt)
   const thoughtEnabled = Array.isArray(agentParsed?.chatSettings?.thoughtPrompt)
+  // "Character Update Output" is offered wherever there's a character to draw
+  // on — either the agent's optional static character, or a live character
+  // update prompt.
+  const characterAvailable = Boolean(agentParsed?.persona?.character?.trim()) || characterEnabled
+
+  function setInitializationEnabled(enabled: boolean) {
+    updateAgentData(data => {
+      data.chatSettings.initializationPrompt = enabled ? (data.chatSettings.initializationPrompt ?? []) : null
+    })
+  }
 
   function setCharacterEnabled(enabled: boolean) {
     updateAgentData(data => {
@@ -379,6 +389,10 @@ export default function AgentParticipantsPage() {
     updateAgentData(data => {
       data.chatSettings.thoughtPrompt = enabled ? (data.chatSettings.thoughtPrompt ?? []) : null
     })
+  }
+
+  function updateInitializationBlocks(items: PromptItem[]) {
+    updateAgentData(data => { data.chatSettings.initializationPrompt = items })
   }
 
   function updateCharacterBlocks(items: PromptItem[]) {
@@ -614,7 +628,7 @@ export default function AgentParticipantsPage() {
             </div>
 
             <p className="text-sm text-neutral-500">
-              Configure the prompts that define your agent's behavior. There's no separate "message creation" prompt — whichever prompt's <span className="text-neutral-400">add to</span> is set to <span className="text-neutral-400">Message</span> is the one that produces the chat message, and it's automatically kept last in the order no matter how many other prompts you add before it. Prompts that share the same <span className="text-neutral-400">order</span> run in parallel; any other <span className="text-neutral-400">add to</span> choice prepends a prompt's output to a later one.
+              Configure the prompts that define your agent's behavior. The <span className="text-neutral-400">Message</span> prompt produces the chat message and is automatically kept last in the order no matter how many other prompts you add before it. Prompts that share the same <span className="text-neutral-400">order</span> run in parallel; any prompt can pull in the output of an earlier-order prompt by adding a <span className="text-neutral-400">Prompt Output</span> block for it.
             </p>
 
             {/* PROMPT TYPE TABS — boxed container, matching the assistant toolkit */}
@@ -629,6 +643,25 @@ export default function AgentParticipantsPage() {
                 >
                   Message Creation
                 </button>
+
+                <div className={`flex items-center ${activePromptType === 'initialization' ? 'border-b-2 border-neutral-400 -mb-px' : ''}`}>
+                  <button
+                    onClick={() => setActivePromptType('initialization')}
+                    className={`px-4 py-2.5 text-sm font-medium transition-colors ${activePromptType === 'initialization' ? 'text-neutral-100' : 'text-neutral-500 hover:text-neutral-300'}`}
+                  >
+                    Initialization
+                  </button>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={initializationEnabled}
+                    onClick={() => setInitializationEnabled(!initializationEnabled)}
+                    title={initializationEnabled ? 'Disable initialization prompt' : 'Enable initialization prompt'}
+                    className={`mr-3 relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors cursor-pointer ${initializationEnabled ? 'bg-neutral-200' : 'bg-neutral-700'}`}
+                  >
+                    <span className={`pointer-events-none inline-block h-4 w-4 mt-0.5 rounded-full bg-neutral-950 transition-transform ${initializationEnabled ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  </button>
+                </div>
 
                 <div className={`flex items-center ${activePromptType === 'character' ? 'border-b-2 border-neutral-400 -mb-px' : ''}`}>
                   <button
@@ -680,6 +713,7 @@ export default function AgentParticipantsPage() {
                       <div className="flex overflow-x-auto bg-neutral-900/60 border-b border-neutral-800">
                         {promptNames.map(name => {
                           const active = name === activeMessageName
+                          const isMessage = name === MESSAGE_KEY
                           return (
                             <div
                               key={name}
@@ -700,12 +734,12 @@ export default function AgentParticipantsPage() {
                                   className="bg-transparent outline-none w-48"
                                 />
                               ) : (
-                                <span onDoubleClick={() => { setEditingName(name); setDraftName(name) }}>
-                                  {name}
+                                <span onDoubleClick={() => { if (!isMessage) { setEditingName(name); setDraftName(name) } }}>
+                                  {isMessage ? 'Message' : name}
                                 </span>
                               )}
 
-                              {promptMap[name].addTo !== MESSAGE_SENTINEL && (
+                              {!isMessage && (
                                 <button
                                   onClick={e => { e.stopPropagation(); deletePrompt(name) }}
                                   className="hover:text-red-300 cursor-pointer"
@@ -729,12 +763,12 @@ export default function AgentParticipantsPage() {
 
                     {activeEntry && activeMessageName && (
                       <>
-                        {/* Order / add to */}
-                        {activeEntry.addTo === MESSAGE_SENTINEL ? (
+                        {/* Order */}
+                        {activeMessageName === MESSAGE_KEY ? (
                           <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
                             <h3 className="text-sm font-medium text-neutral-300">Prompt Execution</h3>
                             <p className="text-xs text-neutral-500 mt-1">
-                              This prompt sends its output to the chat, so it's required and always runs last — order and add-to aren't configurable for it.
+                              This prompt produces the chat message, so it's required and always runs last — order isn't configurable for it.
                             </p>
                           </div>
                         ) : (
@@ -745,38 +779,17 @@ export default function AgentParticipantsPage() {
                               <p className="text-xs text-neutral-500 mt-1">Prompts with the same order run at the same time.</p>
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-
-                              <div className="space-y-1.5">
-                                <label className="text-sm font-medium text-neutral-300">Order</label>
-                                <p className="text-xs text-neutral-500">Determines when this prompt runs.</p>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  step={1}
-                                  value={activeEntry.order}
-                                  onChange={e => updatePromptOrder(activeMessageName, Number(e.target.value))}
-                                  className="w-full px-3 py-2 rounded-md border border-neutral-700 bg-neutral-900 text-sm text-neutral-200 focus:outline-none focus:border-neutral-500"
-                                />
-                              </div>
-
-                              <div className="space-y-1.5">
-                                <label className="text-sm font-medium text-neutral-300">Add to</label>
-                                <p className="text-xs text-neutral-500">Prepend this prompt's output to a later prompt.</p>
-                                <select
-                                  value={activeEntry.addTo ?? ''}
-                                  onChange={e => setPromptAddTo(activeMessageName, e.target.value)}
-                                  className="w-full px-3 py-2 rounded-md border border-neutral-700 bg-neutral-900 text-sm text-neutral-200 focus:outline-none focus:border-neutral-500 cursor-pointer"
-                                >
-                                  <option value="">None</option>
-                                  {promptNames
-                                    .filter(n => n !== activeMessageName && promptMap[n].order > activeEntry.order)
-                                    .map(n => (
-                                      <option key={n} value={n}>{n} (Order {promptMap[n].order})</option>
-                                    ))}
-                                </select>
-                              </div>
-
+                            <div className="space-y-1.5 max-w-xs">
+                              <label className="text-sm font-medium text-neutral-300">Order</label>
+                              <p className="text-xs text-neutral-500">Determines when this prompt runs, and which other prompts can pull in its output.</p>
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={activeEntry.order}
+                                onChange={e => updatePromptOrder(activeMessageName, Number(e.target.value))}
+                                className="w-full px-3 py-2 rounded-md border border-neutral-700 bg-neutral-900 text-sm text-neutral-200 focus:outline-none focus:border-neutral-500"
+                              />
                             </div>
                           </div>
                         )}
@@ -784,19 +797,48 @@ export default function AgentParticipantsPage() {
                         {/* Block editor */}
                         <PromptEditorDescription
                           description={
-                            activeEntry.addTo === MESSAGE_SENTINEL
-                              ? "This prompt produces the agent's chat message — it runs last, after any prompts that feed into it."
-                              : "This prompt's output is prepended to the prompt it's added to, rather than being sent to the chat directly."
+                            activeMessageName === MESSAGE_KEY
+                              ? "This prompt produces the agent's chat message — it runs last, after every other prompt, so it can pull in any of their outputs."
+                              : "This prompt's output isn't sent to the chat directly — a later-order prompt can pull it in with a Prompt Output block."
                           }
                         />
-                        <PromptBlockLegend />
+                        <PromptBlockLegend
+                          showInitializationContext={initializationEnabled}
+                          showCharacterContext={characterAvailable}
+                          showThoughtHistoryContext={thoughtEnabled}
+                          promptOutputOptions={activePromptOutputOptions}
+                        />
                         <StructuredPromptEditor
-                          label={activeMessageName}
+                          label={activeMessageName === MESSAGE_KEY ? 'Message' : activeMessageName}
                           prompt={activeEntry.prompt}
                           stageId=""
                           onUpdate={items => updatePromptBlocks(activeMessageName, items)}
+                          showInitializationContext={initializationEnabled}
+                          showCharacterContext={characterAvailable}
+                          showThoughtHistoryContext={thoughtEnabled}
+                          promptOutputOptions={activePromptOutputOptions}
                         />
                       </>
+                    )}
+                  </div>
+                )}
+
+                {activePromptType === 'initialization' && (
+                  <div className="space-y-4">
+                    <PromptEditorDescription description="Runs once before the conversation begins to produce context the agent can draw on later. Toggle it on above to enable it." />
+                    {initializationEnabled ? (
+                      <>
+                        <PromptBlockLegend />
+                        <StructuredPromptEditor
+                          label="Initialization Prompt"
+                          prompt={agentParsed?.chatSettings?.initializationPrompt ?? []}
+                          stageId=""
+                          onUpdate={updateInitializationBlocks}
+                          showInitializationContext={false}
+                        />
+                      </>
+                    ) : (
+                      <p className="text-sm text-neutral-500">Disabled — toggle it on above to write an initialization prompt.</p>
                     )}
                   </div>
                 )}
@@ -806,12 +848,17 @@ export default function AgentParticipantsPage() {
                     <PromptEditorDescription description="Updates the character of the agent for each message. Toggle it on above to enable it." />
                     {characterEnabled ? (
                       <>
-                        <PromptBlockLegend />
+                        <PromptBlockLegend
+                          showInitializationContext={initializationEnabled}
+                          showThoughtHistoryContext={thoughtEnabled}
+                        />
                         <StructuredPromptEditor
                           label="Character Update Prompt"
                           prompt={agentParsed?.chatSettings?.characterPrompt ?? []}
                           stageId=""
                           onUpdate={updateCharacterBlocks}
+                          showInitializationContext={initializationEnabled}
+                          showThoughtHistoryContext={thoughtEnabled}
                         />
                       </>
                     ) : (
@@ -825,12 +872,17 @@ export default function AgentParticipantsPage() {
                     <PromptEditorDescription description="Generates a new thought to be added to the agent's thought history. Toggle it on above to enable it." />
                     {thoughtEnabled ? (
                       <>
-                        <PromptBlockLegend />
+                        <PromptBlockLegend
+                          showInitializationContext={initializationEnabled}
+                          showCharacterContext={characterAvailable}
+                        />
                         <StructuredPromptEditor
                           label="Thought Generation Prompt"
                           prompt={agentParsed?.chatSettings?.thoughtPrompt ?? []}
                           stageId=""
                           onUpdate={updateThoughtBlocks}
+                          showInitializationContext={initializationEnabled}
+                          showCharacterContext={characterAvailable}
                         />
                       </>
                     ) : (
