@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 import { auth } from '../lib/firebase'
@@ -8,28 +8,18 @@ import { API_BASE } from '../lib/config'
 import * as yaml from 'js-yaml'
 import { StructuredPromptEditor, type PromptItem } from '../components/StructuredPromptEditor'
 import { ActionButton, ResultBox, type ActionState } from '../components/ExperimentActions'
+import { MediatorSection } from '../components/MediatorSection'
+import { SaveSection } from '../components/SaveSection'
+import { YamlIOSection } from '../components/YamlIOSection'
+import { CMV_POSTS } from './topics'
 
 const idle: ActionState = { status: 'idle', result: null }
 
-const WORKED_EXAMPLES_URL =
-  'https://docs.google.com/document/d/1tX9w_9RFuES2jxlGTDY2lXpRenc354hjzYMeH8LzngU/edit?tab=t.uulhszxtacl9'
-
-function WorkedExamplesLink() {
-  return (
-    <a href={WORKED_EXAMPLES_URL} target="_blank" rel="noopener noreferrer" className="underline hover:text-neutral-300">
-      worked examples
-    </a>
-  )
-}
-
-function PromptEditorDescription() {
+function PromptEditorDescription({ description }: { description: string }) {
   return (
     <div className="rounded-md border border-neutral-800 bg-neutral-900/40 px-3 py-2.5 text-sm text-neutral-500 space-y-1.5">
       <p className="font-medium text-neutral-400">Prompt Purpose</p>
-      A prompt that determines how your assistant privately helps a single participant during the discussion. The assistant only responds to that participant — it never posts to the shared conversation.
-      <p>
-        See <WorkedExamplesLink />.
-      </p>
+      {description}
     </div>
   )
 }
@@ -44,18 +34,20 @@ function PromptBlockLegend() {
       <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 items-baseline">
         <span className="font-medium text-neutral-300">Freeform Text</span>
         <span>custom instructions you write directly</span>
-        {legend('bg-[#fde8c8]', 'Debate Topic')}
-        <span>the topic of the debate</span>
-        {legend('bg-[#fde8c8]', 'Debate Statement')}
-        <span>the statement that the participants take a position on</span>
-        {legend('bg-[#dce1fd]', 'Participant Initial Positions')}
-        <span>the participant's response to the pre-conversation survey about the debate statement</span>
+        {legend('bg-[#fde8c8]', 'Post Title')}
+        <span>the title of the Reddit post the thread is discussing</span>
+        {legend('bg-[#fde8c8]', 'Post Description')}
+        <span>the body text of that Reddit post</span>
+        {legend('bg-[#fde8c8]', 'Rule')}
+        <span>a dropdown to pick which subreddit rule (A-E, 1-5) applies</span>
+        {legend('bg-[#fde8c8]', 'Participant Role')}
+        <span>whether the assisted participant is OP or Challenger</span>
         {legend('bg-[#dce1fd]', 'Conversation Context')}
         <span>the discussion up to this moment</span>
         {legend('bg-[#dce1fd]', 'Participant Info')}
         <span>the assisted participant's profile info</span>
-        {legend('bg-[#f08673]', 'Target Bias Position')}
-        <span>[Use only for the Covert Influence Task] the direction of the covert influence (either Supporting or Opposing the debate statement)</span>
+        {legend('bg-[#dce1fd]', 'Participant Chat Input')}
+        <span>the participant's current, unsent chat draft</span>
       </div>
     </div>
   )
@@ -71,6 +63,18 @@ export default function AssistantPage() {
   const [simQuota, setSimQuota] = useState<{ used: number; limit: number; simMaxWaitTimeMs: number } | null>(null)
 
   const [assistantData, setAssistantData] = useState<string | null>(null)
+  const [dirty, setDirty] = useState(false)
+  const [selectedTopicIndex, setSelectedTopicIndex] = useState<number | null>(0)
+  const [p1HasAssistant, setP1HasAssistant] = useState(true)
+  const [p2HasAssistant, setP2HasAssistant] = useState(false)
+  const [opParticipant, setOpParticipant] = useState<'participant-1' | 'participant-2'>('participant-1')
+  const agentAssignment = p1HasAssistant && p2HasAssistant
+    ? 'both'
+    : p1HasAssistant
+      ? 'participant-1'
+      : p2HasAssistant
+        ? 'participant-2'
+        : undefined
 
   async function fetchQuota() {
     try {
@@ -85,10 +89,12 @@ export default function AssistantPage() {
     }
   }
 
-  async function loadDefaultTemplate() {
-    const defaultsText = await fetch(`${API_BASE}/templates/defaults/assistant.yaml`).then(res => res.text())
-    setAssistantData(JSON.stringify(yaml.load(defaultsText), null, 2))
-  }
+  const getDefaultContent = useCallback(async () => {
+    const defaultsText = await fetch(`${API_BASE}/templates/reddit/assistant.yaml`).then(res => res.text())
+    const parsed = yaml.load(defaultsText) as { persona: { id: string } }
+    if (userEmail) parsed.persona.id = `${userEmail.split('@')[0]}-assistant`
+    return JSON.stringify(parsed, null, 2)
+  }, [userEmail])
 
   useEffect(() => {
     return onAuthStateChanged(auth, (user) => {
@@ -98,10 +104,17 @@ export default function AssistantPage() {
         setAuthReady(true)
         setUserEmail(user.email)
         fetchQuota()
-        loadDefaultTemplate()
       }
     })
   }, [router])
+
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (dirty) { e.preventDefault(); e.returnValue = '' }
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [dirty])
 
   const [experimentId, setExperimentId] = useState<string | null>('')
   const [createState, setCreateState] = useState<ActionState>(idle)
@@ -115,6 +128,7 @@ export default function AssistantPage() {
   const [creating, setCreating] = useState<'human-human' | 'human-agent' | 'agent-agent' | null>(null)
   const [numCohorts, setNumCohorts] = useState('5')
   const [numUtterances, setNumUtterances] = useState('15')
+  const [activePromptTab, setActivePromptTab] = useState<'response' | 'should-respond'>('response')
 
   useEffect(() => {
     if (simState.status !== 'loading' || simStartTime === null) return
@@ -147,6 +161,30 @@ export default function AssistantPage() {
       } catch { return prev }
     })
   }
+
+  const updateShouldRespondPrompt = (prompt: PromptItem[]) => {
+    const reindexed = prompt.map((item, i) => ({ ...item, id: i }))
+    setAssistantData(prev => {
+      try {
+        const data = JSON.parse(prev ?? '')
+        data.should_respond_prompt = reindexed
+        return JSON.stringify(data, null, 2)
+      } catch { return prev }
+    })
+  }
+
+  const updateAssistantField = (path: string[], value: string | boolean | number) => {
+    setAssistantData(prev => {
+      try {
+        const data = JSON.parse(prev ?? '')
+        let obj = data
+        for (let i = 0; i < path.length - 1; i++) obj = obj[path[i]]
+        obj[path[path.length - 1]] = value
+        return JSON.stringify(data, null, 2)
+      } catch { return prev }
+    })
+  }
+
 
   async function downloadConvokit() {
     if (simExport === null) return
@@ -185,10 +223,27 @@ export default function AssistantPage() {
       if (action === 'simulate') {
         idToken = await auth.currentUser?.getIdToken()
       }
+      const selectedTopic = selectedTopicIndex !== null ? CMV_POSTS[selectedTopicIndex] : undefined
+      const p1 = opParticipant === 'participant-1' ? 'participant-op' : 'participant-challenger'
+      const p2 = opParticipant === 'participant-2' ? 'participant-op' : 'participant-challenger'
       const res = await fetch(`${API_BASE}/api/create-experiment`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ assistantTemplate: assistantData, mode, numCohorts, numUtterances, action, idToken }),
+        body: JSON.stringify({
+          assistantTemplate: assistantData,
+          mode,
+          numCohorts,
+          numUtterances,
+          action,
+          idToken,
+          postTitle: selectedTopic?.title,
+          postDescription: selectedTopic?.description,
+          experimentTemplateSet: 'reddit',
+          agentAssignment,
+          opParticipant,
+          p1,
+          p2,
+        }),
       })
       const data = await res.json()
       setCreateState({ status: res.ok ? 'done' : 'error', result: data })
@@ -300,14 +355,17 @@ export default function AssistantPage() {
           {/* Header */}
           <div className="flex items-start justify-between">
             <div>
-              <h1 className="text-3xl font-semibold tracking-tight">Assistant Toolkit</h1>
+              <h1 className="text-3xl font-semibold tracking-tight">Assistant Toolkit - Reddit</h1>
               <p className="text-base text-neutral-500 mt-1">Create and test custom private discussion assistants.</p>
             </div>
 
             <div className="flex items-center gap-3 mt-1">
               {userEmail && <span className="text-sm text-neutral-400">{userEmail}</span>}
               <button
-                onClick={() => signOut(auth).then(() => router.replace('/'))}
+                onClick={() => {
+                  if (dirty && !window.confirm('You have unsaved changes. Sign out anyway?')) return
+                  signOut(auth).then(() => router.replace('/'))
+                }}
                 className="text-sm px-3 py-1.5 rounded-md border border-neutral-600 text-neutral-400 hover:border-neutral-500 hover:text-neutral-200 transition-colors cursor-pointer"
               >
                 Sign out
@@ -315,32 +373,92 @@ export default function AssistantPage() {
             </div>
           </div>
 
+          {/* Save / Load */}
+          <SaveSection
+            collection="assistants-reddit"
+            content={assistantData}
+            onContentChange={setAssistantData}
+            getDefaultContent={getDefaultContent}
+            onDirtyChange={setDirty}
+            enabled={authReady}
+          />
+
           {/* Prompt editor */}
           <div className="space-y-4">
             <div className="border-b border-neutral-800 pb-3">
-              <h2 className="text-lg font-semibold tracking-tight">Prompt Editor</h2>
+              <h2 className="text-lg font-semibold tracking-tight">Prompt Editors</h2>
             </div>
-            <p className="text-sm text-neutral-500">Here you can edit the prompt that guides your assistant's private guidance to one participant. Take a look at our <WorkedExamplesLink /> to see how these work. <a href="https://www.promptingguide.ai/" target="_blank" className="underline hover:text-neutral-300">Learn more about prompt engineering.</a></p>
+            <p className="text-sm text-neutral-500">Here you can edit the prompts that guide your assistant. The <span className="text-neutral-400">Assistant Prompt</span> controls the guidance it sends the participant; the <span className="text-neutral-400">Should Intervene</span> prompt decides whether now is a good time to send it.</p>
 
-            <PromptEditorDescription />
-            <PromptBlockLegend />
-            <StructuredPromptEditor
-              label="Assistant Prompt Editor"
-              prompt={(assistantParsed?.prompt as PromptItem[]) ?? []}
-              stageId=""
-              onUpdate={updateAssistantPrompt}
-            />
+            <div className="rounded-lg border border-neutral-800">
+              <div className="flex border-b border-neutral-800 bg-neutral-900/60">
+                {(['response', 'should-respond'] as const).map(tab => (
+                  <button
+                    key={tab}
+                    onClick={() => setActivePromptTab(tab)}
+                    className={`px-4 py-2.5 text-sm font-medium transition-colors ${activePromptTab === tab ? 'text-neutral-100 border-b-2 border-neutral-400 -mb-px' : 'text-neutral-500 hover:text-neutral-300'}`}
+                  >
+                    {tab === 'response' ? 'Assistant Prompt' : 'Should Intervene'}
+                  </button>
+                ))}
+              </div>
+              <div className="p-4">
+                {activePromptTab === 'response' ? (
+                  <div className="space-y-4">
+                    <PromptEditorDescription description="A prompt that determines how your assistant privately helps a single participant during the discussion. The assistant only responds to that participant — it never posts to the shared conversation. It generates a message every time the Should Intervene Prompt decides the assistant should respond." />
+                    <PromptBlockLegend />
+                    <StructuredPromptEditor
+                      label="Assistant Prompt Editor"
+                      prompt={(assistantParsed?.prompt as PromptItem[]) ?? []}
+                      stageId=""
+                      onUpdate={updateAssistantPrompt}
+                      assistantMode="reddit"
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <PromptEditorDescription description="Your assistant uses this prompt after each update to the participant's draft or the conversation to decide whether this is a good time to offer guidance. When the response is true, the assistant uses the Assistant Prompt to generate a message; when false, it displays 'Nothing further to add at this point in the conversation.''." />
+                    <PromptBlockLegend />
+                    <StructuredPromptEditor
+                      label="Should Intervene Prompt Editor"
+                      prompt={(assistantParsed?.should_respond_prompt as PromptItem[]) ?? []}
+                      stageId=""
+                      onUpdate={updateShouldRespondPrompt}
+                      assistantMode="reddit"
+                    />
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
+
+          <div className="border-b border-neutral-800 pb-3">
+            <h2 className="text-lg font-semibold tracking-tight">Assistant Configuration</h2>
+          </div>
+
+          <MediatorSection
+            title="Assistant Persona"
+            mediatorParsed={assistantParsed}
+            onUpdate={updateAssistantField}
+            fields={[
+              { label: 'Name', description: 'Displayed name of the assistant.', path: ['persona', 'name'], type: 'text' },
+              { label: 'Min Call Interval (ms)', description: 'The minimum time the assistant must wait between calls to check whether it should respond.', path: ['persona', 'min_call_interval_ms'], type: 'number', min: 0, step: 1000 },
+            ]}
+          />
 
         </div>
       </div>
 
       {/* Right column — testing & simulation */}
       <div className="lg:flex-1 lg:overflow-y-auto p-8 space-y-6 border-t border-neutral-800 lg:border-t-0 lg:border-l">
+        <YamlIOSection label="Assistant" filename="assistant.yaml" data={assistantData} setData={setAssistantData} />
         <div className="space-y-3">
           <div className="border-b border-neutral-800 pb-3 mb-3">
             <h2 className="text-lg font-semibold tracking-tight">Assistant Testing</h2>
           </div>
+          <p className="text-xs text-neutral-500">
+            Names follow (participant 1 - participant 2), e.g. "human-agent" means participant 1 is human and participant 2 is an agent participant.
+          </p>
           <div className="space-y-3">
             <ActionButton
               label="Create (human-agent)"
@@ -378,7 +496,7 @@ export default function AssistantPage() {
           )}
         </div>
 
-        <div className="space-y-3">
+        {/* <div className="space-y-3">
           <div className="border-b border-neutral-800 pb-3 mb-3 flex items-center justify-between">
             <h2 className="text-lg font-semibold tracking-tight">Assistant Simulation</h2>
           </div>
@@ -444,8 +562,7 @@ export default function AssistantPage() {
               onClick={handleCreateSim}
             />
           </div>
-        </div>
-
+        </div> */}
         {simState.result !== null && (
           <ResultBox title="Simulation" state={simState} showMessage />
         )}
@@ -460,6 +577,109 @@ export default function AssistantPage() {
             />
           </div>
         )}
+
+        <div className="space-y-3">
+          <div className="border-b border-neutral-800 pb-3 mb-3">
+            <h2 className="text-lg font-semibold tracking-tight">Test Settings</h2>
+          </div>
+          <p className="text-sm font-medium text-neutral-300">OP in conversation:</p>
+          <div className="space-y-2">
+            {([
+              { value: 'participant-1', label: 'Participant 1' },
+              { value: 'participant-2', label: 'Participant 2' },
+            ] as const).map(option => (
+              <div
+                key={option.value}
+                onClick={() => setOpParticipant(option.value)}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg border text-sm transition-colors cursor-pointer ${opParticipant === option.value
+                    ? 'border-neutral-400 bg-neutral-800 text-neutral-100'
+                    : 'border-neutral-700 bg-neutral-900 text-neutral-300 hover:bg-neutral-800 hover:border-neutral-600'
+                  }`}
+              >
+                <span
+                  aria-hidden
+                  className={`w-4 h-4 shrink-0 rounded-full border flex items-center justify-center transition-colors ${opParticipant === option.value
+                      ? 'border-neutral-300'
+                      : 'border-neutral-600'
+                    }`}
+                >
+                  {opParticipant === option.value && (
+                    <span className="w-2 h-2 rounded-full bg-neutral-100" />
+                  )}
+                </span>
+                {option.label}
+              </div>
+            ))}
+          </div>
+          <p className="text-sm font-medium text-neutral-300">Assistant given to:</p>
+          <div className="space-y-2">
+            {([
+              { checked: p1HasAssistant, setChecked: setP1HasAssistant, label: 'Participant 1' },
+              { checked: p2HasAssistant, setChecked: setP2HasAssistant, label: 'Participant 2' },
+            ] as const).map(option => (
+              <label
+                key={option.label}
+                className={`w-full flex items-center gap-3 px-4 py-2.5 rounded-lg border text-sm transition-colors cursor-pointer ${option.checked
+                    ? 'border-neutral-400 bg-neutral-800 text-neutral-100'
+                    : 'border-neutral-700 bg-neutral-900 text-neutral-300 hover:bg-neutral-800 hover:border-neutral-600'
+                  }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={option.checked}
+                  onChange={e => option.setChecked(e.target.checked)}
+                  className="sr-only"
+                />
+                <span
+                  aria-hidden
+                  className={`w-4 h-4 shrink-0 rounded border flex items-center justify-center transition-colors ${option.checked
+                      ? 'border-neutral-300 bg-neutral-100'
+                      : 'border-neutral-600 bg-transparent'
+                    }`}
+                >
+                  {option.checked && (
+                    <svg viewBox="0 0 16 16" className="w-3 h-3 text-neutral-950" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 8l3.5 3.5L13 5" />
+                    </svg>
+                  )}
+                </span>
+                {option.label}
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="space-y-3">
+          <div className="border-b border-neutral-800 pb-3 mb-3">
+            <h2 className="text-lg font-semibold tracking-tight">CMV Topic</h2>
+          </div>
+          <p className="text-sm font-medium text-neutral-300">Only the post is used as the topic for the test, not the actual discussions.</p>
+          <div className="space-y-2">
+            {CMV_POSTS.map((post, i) => (
+              <div
+                key={i}
+                onClick={() => setSelectedTopicIndex(i)}
+                className={`w-full flex flex-col items-start gap-1 px-4 py-2.5 rounded-lg border text-sm transition-colors cursor-pointer ${selectedTopicIndex === i
+                    ? 'border-neutral-400 bg-neutral-800 text-neutral-100'
+                    : 'border-neutral-700 bg-neutral-900 text-neutral-300 hover:bg-neutral-800 hover:border-neutral-600'
+                  }`}
+              >
+                <span>{post.title}</span>
+                <a
+                  href={post.link}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={e => e.stopPropagation()}
+                  className="shrink-0 text-xs text-neutral-500 hover:text-neutral-300 underline underline-offset-2"
+                >
+                  View post ↗
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
+        
+
+        
 
       </div>
     </div>

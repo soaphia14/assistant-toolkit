@@ -1,0 +1,184 @@
+topic:
+  name: "reddit-cmv"
+  statement: ""
+experiment:
+  participants:
+    # - slot: p1
+    #   type: agent
+    #   template: templates/defaults/agent-1.yaml
+    # - slot: p2
+    #   type: agent
+    #   template: templates/defaults/agent-2.yaml
+
+    # - slot: p1
+    #   type: agent
+    #   template: templates/defaults/agent-1.yaml
+    # - slot: p2
+    #   type: human
+    
+    - slot: p1
+      type: human
+    - slot: p2
+      type: human
+
+  num_cohorts: 5
+  metadata:
+    publicName: "{post_title}"
+    description: 'Post Title: {post_title}'
+    tags:
+      - toolkit
+  permissions:
+    visibility: public
+  defaultCohortConfig:
+    minParticipantsPerCohort: 2
+    maxParticipantsPerCohort: 2
+    includeAllParticipantsInCohortCount: true
+    botProtection: true
+  prolificConfig:
+    enableProlificIntegration: false
+    defaultRedirectCode: ""
+    attentionFailRedirectCode: ""
+    bootedRedirectCode: ""
+  unlockTimeMs: null
+  unlockDurationMs: null
+
+stageConfigs:
+  - id: pre-survey
+    kind: profile
+    name: "Profile Setup"
+    descriptions:
+      primaryText: "Set up your profile"
+      infoText: ""
+      helpText: ""
+    progress:
+      minParticipants: 1
+      waitForAllParticipants: false
+      showParticipantProgress: false
+      maxWaitTimeMs: 10000
+      agentJoinTimeMs: 5000
+      lockCohortAtTwoParticipants: false
+      waitStageHasTimer: false
+    profileType: REDDIT
+
+  - id: post-info
+    kind: info
+    name: "CMV Post"
+    descriptions:
+      primaryText: "Please read the following post for context on the discussion."
+      infoText: ""
+      helpText: ""
+    progress:
+      minParticipants: 1
+      waitForAllParticipants: false
+      showParticipantProgress: true
+      maxWaitTimeMs: 10000
+      agentJoinTimeMs: 5000
+      lockCohortAtTwoParticipants: false
+      waitStageHasTimer: false
+    infoLines:
+      - "# {post_title}"
+      - "{post_description}"
+    youtubeVideoId: ""
+
+  - id: chat-round-1
+    kind: chat
+    name: "Discussion"
+    descriptions:
+      primaryText: '{post_title}'
+      infoText: ""
+      helpT1ext: ""
+    progress:
+      minParticipants: 2
+      waitForAllParticipants: false
+      showParticipantProgress: true
+      maxWaitTimeMs: 210000
+      agentJoinTimeMs: 130000
+      lockCohortAtTwoParticipants: false
+      waitStageHasTimer: false
+      pIdToAssistantId:
+        <prolific_id_1>: "<assistant-persona-doc-id>"
+        <prolific_id_2>: "<assistant-persona-doc-id>"
+    discussions: []
+    timeLimitInMinutes: 9
+    requireFullTime: true
+    numUtterances: 15
+
+  - id: post-survey
+    kind: survey
+    name: "Post-Discussion Survey"
+    descriptions:
+      primaryText: 'Answer a few questions about the discussion on "{statement}"'
+      infoText: ""
+      helpText: ""
+    progress:
+      minParticipants: 1
+      waitForAllParticipants: false
+      showParticipantProgress: true
+      maxWaitTimeMs: 10000
+      agentJoinTimeMs: 5000
+      lockCohortAtTwoParticipants: false
+      waitStageHasTimer: false
+    questions:
+      - kind: scale
+        id: q1_a
+        questionTitle: "How constructive was the conversation?"
+        lowerValue: 1
+        lowerText: "Not constructive at all"
+        upperValue: 7
+        upperText: "Very constructive"
+      - kind: mc
+        id: q2_a
+        questionTitle: "Do you intend to participate in future conversations?"
+        options:
+          - id: "yes"
+            imageId: ""
+            text: "Yes"
+          - id: "maybe"
+            imageId: ""
+            text: "Maybe"
+          - id: "no"
+            imageId: ""
+            text: "No"
+      - kind: mc
+        id: q3_a
+        questionTitle: "If you are the OP, would you award a delta?"
+        options:
+          - id: "delta_yes"
+            imageId: ""
+            text: "Yes"
+          - id: "delta_no"
+            imageId: ""
+            text: "No"
+          - id: "delta_not_op"
+            imageId: ""
+            text: "N/A - Not OP"
+      - kind: mc
+        id: q4_a
+        questionTitle: "If you had an assistant, how helpful was it?"
+        options:
+          - id: "helpful_1"
+            imageId: ""
+            text: "1 - Not helpful at all"
+          - id: "helpful_2"
+            imageId: ""
+            text: "2"
+          - id: "helpful_3"
+            imageId: ""
+            text: "3"
+          - id: "helpful_4"
+            imageId: ""
+            text: "4"
+          - id: "helpful_5"
+            imageId: ""
+            text: "5"
+          - id: "helpful_6"
+            imageId: ""
+            text: "6"
+          - id: "helpful_7"
+            imageId: ""
+            text: "7 - Very helpful"
+          - id: "helpful_na"
+            imageId: ""
+            text: "N/A - I did not have an assistant"
+
+        

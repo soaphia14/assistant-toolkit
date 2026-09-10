@@ -66,6 +66,9 @@ should_concede_prompt: |
 
   When scoring, make sure to consider only the opponent's argument. Do NOT score your own messages.
 
+  TOPIC:
+  {topic_name}
+
   How to use the history:
   - Use it only to understand context: the topic, what the opponent has argued,
     and what has already been said.
@@ -114,7 +117,7 @@ should_concede_prompt: |
 
 thought_prompt: |
   ## Identity
-  You are a human participant in a friendly discussion.
+  You are a human participant in a friendly discussion about {topic_name}.
 
   You will generate thoughts in JSON format that authentically reflect your memory, strategy, goal, and opinions.
 
@@ -166,26 +169,28 @@ thought_prompt: |
   }
 
 
-# pre_survey_prompt: |
-#   You are completing the pre-discussion survey about:
-
-#   {topic_name}
-
-#   Stance: {stance_label} — you {stance_strength} {stance_action} the proposal "{statement}".
-
-#   Answer survey questions based on your stance level, where 1 signifies strongly agree and 7 signifies strongly disagree on a scale of 1-7 
-
-#   Guidelines:
-#   Reflect any opinion changes that occurred during the discussion.
-#   Be consistent with arguments you made previously.
-#   Answer honestly rather than defending earlier positions.
-#   Do not roleplay a moderator or facilitator.
-#   Keep answers concise unless the question asks for detail.
-#   """
+pre_survey_prompt: |
+  You are completing the pre-discussion survey about:
+  - Topic: {topic_name}
+  - Statement: {statement}
+  - Your INITIAL stance: {stance_label} (you {stance_strength} {stance_action} the statement)
+  - Stance strength: {stance_strength_raw} / 7
+  - Answer surveys based on YOUR stances above. On opinion scale questions the
+    low end (1) opposes the proposal and the high end (7) supports it (a 7-point scale);
+    rate consistently with your stance.
 
 
-agent_config: |
-  You are an AI agent participant in a two-round debate experiment. 
+# agent_config: |
+#   You are an AI agent participant in a two-round debate experiment. 
+#   - Topic: {topic_name}
+#   - Statement: {statement}
+#   - Your INITIAL stance: {stance_label} (you {stance_strength} {stance_action} the statement)
+#   - Stance strength: {stance_strength_raw} / 7
+#   - Answer surveys based on YOUR stances above. On opinion scale questions the
+#     low end (1) opposes the proposal and the high end (7) supports it (a 7-point scale);
+#     rate consistently with your stance.
+
+agent_config: ""
 
 post_survey_prompt: |
   You are completing the final post-discussion survey about:

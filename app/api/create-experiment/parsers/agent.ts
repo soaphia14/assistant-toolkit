@@ -85,11 +85,11 @@ function _human_style_prompt(tpl: Record<string, any>): PromptItem[] {
 }
 
 function _pre_survey_prompt(tpl: Record<string, any>): PromptItem[] {
-  return [{ type: 'TEXT', text: tpl.pre_survey_prompt }]
+  return [{ type: 'TEXT', text: tpl.pre_survey_prompt ?? '' }]
 }
 
 function _post_survey_prompt(tpl: Record<string, any>): PromptItem[] {
-  return [{ type: 'TEXT', text: tpl.post_survey_prompt }]
+  return [{ type: 'TEXT', text: tpl.post_survey_prompt ?? '' }]
 }
 
 
@@ -113,17 +113,19 @@ function _chatPrompt(tpl: Record<string, any>, stageId: string, stageIdsInOrder:
   }
 }
 
-// function _pre_survey_stage(tpl: Record<string, any>, stageId: string, stageIdsInOrder: string[]): GenericPromptConfig {
-//   return {
-//     id: stageId,
-//     type: 'survey',
-//     includeScaffoldingInPrompt: true,
-//     includeConcessionInPrompt: true,
-//     prompt: buildPromptItems(tpl, stageId, stageIdsInOrder, _pre_survey_prompt(tpl)),
-//     generationConfig: buildGeneration(tpl, "pre_survey_generation"),
-//     numRetries: tpl.num_retries,
-//   }
-// }
+function _pre_survey_stage(tpl: Record<string, any>, stageId: string, stageIdsInOrder: string[]): GenericPromptConfig {
+  return {
+    id: stageId,
+    type: 'survey',
+    includeScaffoldingInPrompt: true,
+    includeConcessionInPrompt: true,
+    prompt: buildPromptItems(tpl, stageId, stageIdsInOrder, _pre_survey_prompt(tpl)),
+    generationConfig: buildGeneration(tpl, "pre_survey_generation"),
+    numRetries: tpl.num_retries,
+    includePersona: null,
+    includeThoughtHistory: null,
+  }
+}
 
 function _post_survey_stage(tpl: Record<string, any>, stageId: string, stageIdsInOrder: string[], personaStages: string[], thoughtHistoryStages: string[]): GenericPromptConfig {
   return {
@@ -141,16 +143,96 @@ function _post_survey_stage(tpl: Record<string, any>, stageId: string, stageIdsI
 
 
 
+// ── New schema: order/addTo prompt graph ───────────────────────────────────────
+//
+// The Agent Participant toolkit page authors templates in this shape instead of
+// the flat `prompt` + plain-string-prompt legacy shape above. Its `chatSettings`
+// carries a `promptMap` of named, independently block-edited prompts, each with
+// an `order` (prompts sharing an order run in parallel) and an `addTo` (either
+// another prompt name with a strictly greater order, whose prompt this one's
+// output is prepended to, or the sentinel "message" once the chain is meant to
+// be sent to chat). `thoughtPrompt`/`characterPrompt` are separate, optional,
+// single block lists (null when disabled) outside that graph.
+
+function _newChatPrompt(tpl: Record<string, any>, stageId: string, stageIdsInOrder: string[]): Record<string, any> {
+  const cs = tpl.chatSettings ?? {}
+  const promptMap: Record<string, { order?: number; addTo?: string | null; prompt?: any[] }> = cs.promptMap ?? {}
+
+  const prompt: Record<string, any[]> = {}
+  const order: Record<number, string[]> = {}
+  const addTo: Record<string, string[]> = {}
+
+  // addTo is keyed by the RECEIVING prompt, with the list holding the names
+  // of the prompts whose output gets appended to it — i.e. addTo[target]
+  // includes every prompt that sends its output to target. That's the
+  // inverse of how each entry stores its own single `addTo` target, so it
+  // has to be inverted here.
+  for (const [name, entry] of Object.entries(promptMap)) {
+    prompt[name] = buildPromptItems({ prompt: entry.prompt ?? [], context: cs.context }, stageId, stageIdsInOrder)
+    const group = entry.order ?? 1
+    ;(order[group] ??= []).push(name)
+    if (entry.addTo) {
+      (addTo[entry.addTo] ??= []).push(name)
+    }
+  }
+
+  const thoughtPrompt = Array.isArray(cs.thoughtPrompt)
+    ? buildPromptItems({ prompt: cs.thoughtPrompt, context: cs.context }, stageId, stageIdsInOrder)
+    : undefined
+  const characterPrompt = Array.isArray(cs.characterPrompt)
+    ? buildPromptItems({ prompt: cs.characterPrompt, context: cs.context }, stageId, stageIdsInOrder)
+    : undefined
+
+  return {
+    id: stageId,
+    type: 'chat',
+    prompt,
+    order,
+    addTo,
+    includeScaffoldingInPrompt: cs.includeScaffoldingInPrompt,
+    numRetries: cs.numRetries,
+    generationConfig: tpl.generation ? {
+      temperature: tpl.generation.temperature,
+      reasoningLevel: tpl.generation.reasoningLevel,
+      includeReasoning: tpl.generation.includeReasoning,
+    } : undefined,
+    chatSettings: {
+      // Not exposed in the toolkit UI for agent participants; the platform
+      // requires a value, so this is a fixed, sensible default.
+      minMessagesBeforeResponding: 0,
+      canSelfTriggerCalls: cs.canSelfTriggerCalls,
+      initialMessage: cs.initialMessage,
+      wordsPerMinute: cs.wordsPerMinute,
+    },
+    thoughtPrompt,
+    characterPrompt,
+    includePersona: [stageId],
+    includeThoughtHistory: [stageId],
+  }
+}
+
 // ── Public ────────────────────────────────────────────────────────────────────
 
-export function buildAgent(chat_stage_id: string, pre_survey_stage_id: string, post_survey_stage_id: string | null, agentTemplate: Record<string, any>, stageIdsInOrder: string[]): AgentParticipantTemplate {
+export function buildAgent(chat_stage_id: string, pre_survey_stage_id: string | null, post_survey_stage_id: string | null, agentTemplate: Record<string, any>, stageIdsInOrder: string[]): AgentParticipantTemplate {
   const tpl = agentTemplate
+
+  if (tpl.chatSettings?.promptMap) {
+    return {
+      persona: buildPersona(tpl),
+      promptMap: {
+        [chat_stage_id]: _newChatPrompt(tpl, chat_stage_id, stageIdsInOrder),
+      } as unknown as AgentParticipantTemplate['promptMap'],
+    }
+  }
+
   return {
     persona: buildPersona(tpl),
     promptMap: {
       [chat_stage_id]: _chatPrompt(tpl, chat_stage_id, stageIdsInOrder),
-      // [pre_survey_stage_id]: _pre_survey_stage(tpl, pre_survey_stage_id, stageIdsInOrder),
-      // Runs without a post-discussion survey get no prompt for one.
+      // Runs without the surveys around the chat get no prompts for them.
+      ...(pre_survey_stage_id
+        ? { [pre_survey_stage_id]: _pre_survey_stage(tpl, pre_survey_stage_id, stageIdsInOrder) }
+        : {}),
       ...(post_survey_stage_id
         ? { [post_survey_stage_id]: _post_survey_stage(tpl, post_survey_stage_id, stageIdsInOrder, [chat_stage_id], [chat_stage_id]) }
         : {}),

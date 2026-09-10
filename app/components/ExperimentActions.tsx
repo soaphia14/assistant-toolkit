@@ -20,7 +20,7 @@ export function ActionButton({ label, loadingLabel, loading, disabled, onClick }
   )
 }
 
-type ParticipantLink = {url: string; type: string}
+type ParticipantLink = {url: string; type: string; role?: string}
 type CohortLinks = { participant_urls?: ParticipantLink[] }
 
 export function ResultBox({ title, state, links, showMessage, linkPrefix }: {
@@ -61,7 +61,7 @@ export function ResultBox({ title, state, links, showMessage, linkPrefix }: {
                 rel="noreferrer"
                 className="block text-sm text-neutral-300 hover:text-white underline underline-offset-2 transition-colors break-all"
               >
-                {linkPrefix ? `${linkPrefix} - ` : ''}Participant {pIdx + 1} ({item.type}) ↗
+                {linkPrefix ? `${linkPrefix} - ` : ''}Participant {pIdx + 1} ({item.type}{item.role ? `, ${item.role}` : ''}) ↗
               </a>
             ))}
           </div>

@@ -7,7 +7,7 @@ import type { AgentAssistantTemplate } from './assistant'
 import { substituteTokens } from '../utils'
 
 
-export function buildTopic(t: Record<string, any>): Record<string, any> {
+export function buildTopic(t: Record<string, any> = {}): Record<string, any> {
   return {
     name: t.name,
     statement: t.statement,
@@ -18,7 +18,7 @@ export function buildTopic(t: Record<string, any>): Record<string, any> {
   }
 }
 
-export function buildStages(experimentTemplate: Record<string, any>, topicInfo: Record<string, any>): Record<string, any>[] {
+export function buildStages(experimentTemplate: Record<string, any>, topicInfo: Record<string, any>, postTitle?: string, postDescription?: string): Record<string, any>[] {
   const subs: Record<string, string> = {
     '{name}': topicInfo.name,
     '{statement}': topicInfo.statement,
@@ -26,6 +26,10 @@ export function buildStages(experimentTemplate: Record<string, any>, topicInfo: 
     '{scale_high}': wrapChars(topicInfo.scale_high),
     '{favor_disagree}': topicInfo.favor_disagree,
     '{favor_agree}': topicInfo.favor_agree,
+    '{post_title}': postTitle ?? '',
+    '{post_description}': postDescription ?? '',
+    '{article_title}': postTitle ?? '',
+    '{article_body}': postDescription ?? '',
   }
   return experimentTemplate.stageConfigs.map((s: any) => substituteTokens(s, subs))
 }
@@ -35,14 +39,23 @@ export function buildExperiment(
   topicInfo: Record<string, any>,
   stages: Record<string, any>[],
   stageIdsInOrder: string[],
-  mediator: AgentMediatorTemplate | null,
+  mediator: AgentMediatorTemplate | null | undefined,
   agents: AgentParticipantTemplate[] | null,
   mode: string,
   sim: boolean,
-  assistants: AgentAssistantTemplate[] | null = null
+  assistants: AgentAssistantTemplate[] | null = null,
+  postTitle?: string,
+  postDescription?: string
 ): [Record<string, any>, string] {
 
-  const subs: Record<string, string> = { '{name}': topicInfo.name, '{statement}': topicInfo.statement }
+  const subs: Record<string, string> = {
+    '{name}': topicInfo.name,
+    '{statement}': topicInfo.statement,
+    '{post_title}': postTitle ?? '',
+    '{post_description}': postDescription ?? '',
+    '{article_title}': postTitle ?? '',
+    '{article_body}': postDescription ?? '',
+  }
   const exp = substituteTokens(experimentTemplate.experiment, subs)
   const meta = exp.metadata ?? {}
   const perm = exp.permissions ?? {}

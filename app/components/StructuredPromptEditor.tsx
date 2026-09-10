@@ -12,11 +12,46 @@ export enum PromptItemType {
   CONTEXT = 'CONTEXT',
   PROFILE_INFO = 'PROFILE_INFO',
   PARTICIPANT_INFO = 'PARTICIPANT_INFO',
+  PARTICIPANT_CHAT_INPUT = 'PARTICIPANT_CHAT_INPUT',
   INITIALIZATION_CONTEXT = 'INITIALIZATION_CONTEXT',
   PRELOADED_CONTEXT='PRELOADED_CONTEXT',
   BIASED = 'BIASED',
   TOPIC_NAME = 'TOPIC_NAME',
   BLOCK = 'BLOCK',
+  ARTICLE_PAGE= 'ARTICLE_PAGE',
+  POST_TITLE = 'POST_TITLE',
+  POST_DESCRIPTION = 'POST_DESCRIPTION',
+  RULE = 'RULE',
+  PARTICIPANT_ROLE = 'PARTICIPANT_ROLE'
+}
+
+export const RULE_OPTIONS = ['A', 'B', 'C', 'D', 'E', '1', '2', '3', '4', '5'] as const
+export type RuleOption = typeof RULE_OPTIONS[number]
+
+export const RULE_TITLES: Record<RuleOption, string> = {
+  A: "Rule A - Doesn't Explain View",
+  B: 'Rule B - 3rd Party/Devils Advocate/Soapboxing',
+  C: 'Rule C - Unclear/Improper Title',
+  D: 'Rule D - Neutral/Transgender/Harm a specific person/Promo/Meta',
+  E: 'Rule E - No/Minimal Replies from OP in 2 hours',
+  '1': "Rule 1 - Doesn't Challenge OP (top-level only)",
+  '2': 'Rule 2 - Rude/Hostile Comment',
+  '3': 'Rule 3 - Bad Faith Accusation',
+  '4': 'Rule 4 - Delta Abuse/Misuse or Should Award Delta',
+  '5': "Rule 5 - Doesn't Contribute Meaningfully",
+}
+
+export const RULE_DESCRIPTIONS: Record<RuleOption, string> = {
+  A: 'Explain the reasoning behind your view, not just what that view is (500+ human-generated characters required). See the wiki for more information',
+  B: "You must personally hold the view and demonstrate that you are open to it changing. A post cannot be on behalf of others, playing devil's advocate, as any entity other than yourself, or 'soapboxing'. Posts by throwaway accounts must be approved through modmail. See the wiki for more information",
+  C: 'Submission titles must adequately sum up your view and include "CMV:" at the beginning. Posts with misleading/overly-simplistic titles or titles that contain spoilers may be removed. See the wiki for more information',
+  D: 'Posts cannot express a neutral stance, a stance regarding transgender topics, suggest harm against a specific person, be self-promotional, or discuss this subreddit (visit r/ideasforcmv instead). See the wiki for more information',
+  E: "Only post if you are willing to have a conversation with those who reply to you, and are available to do so within 2 hours of your post going live. If you haven't replied during this time, your post will be removed. See the wiki for more information",
+  '1': "Direct responses to a CMV post must challenge at least one aspect of OP's stated view (however minor), unless they are asking a clarifying question. See the wiki for more information",
+  '2': "Don't be rude or hostile to other users. Your comment will be removed even if the rest of it is solid. 'They started it' is not an excuse. You should report it, not respond to it. See the wiki for more information",
+  '3': 'Refrain from accusing OP or anyone else of being unwilling to change their view, of using AI to generate their post or comment, of lying, or of arguing in bad faith. If you are unsure whether someone is genuine, ask clarifying questions (see: socratic method). If you think they are still exhibiting ill behaviour, please message us. See the wiki for more information',
+  '4': "Award a delta if you've acknowledged a change in your view. Do not use deltas for any other purpose. You must include an explanation of the change along with the delta so we know it's genuine. Delta abuse includes sarcastic deltas, joke deltas, super-upvote deltas, etc. See the wiki for more information",
+  '5': 'Comments must contain human-generated content and contribute meaningfully to the conversation. Comments that are only links, jokes, or "written upvotes" will be removed. Humor and affirmations of agreement can be contained within more substantial comments. See the wiki for more information.',
 }
 
 export interface PromptItem {
@@ -41,8 +76,35 @@ export interface ParticipantInfoPromptItem extends PromptItem {
   type: PromptItemType.PARTICIPANT_INFO
 }
 
+export interface ParticipantChatInputPromptItem extends PromptItem {
+  type: PromptItemType.PARTICIPANT_CHAT_INPUT
+}
+
 export interface InitializationContextPromptItem extends PromptItem {
   type: PromptItemType.INITIALIZATION_CONTEXT
+}
+
+// Wikipedia Specific
+export interface ArticlePagePromptItem extends PromptItem {
+  type: PromptItemType.ARTICLE_PAGE
+}
+
+// Reddit Specific
+export interface PostTitlePromptItem extends PromptItem {
+  type: PromptItemType.POST_TITLE
+}
+
+export interface PostDescriptionPromptItem extends PromptItem {
+  type: PromptItemType.POST_DESCRIPTION
+}
+
+export interface ParticipantRolePromptItem extends PromptItem {
+  type: PromptItemType.PARTICIPANT_ROLE
+}
+
+export interface RulePromptItem extends PromptItem {
+  type: PromptItemType.RULE
+  rule: RuleOption
 }
 
 // Legacy
@@ -67,6 +129,7 @@ export interface BlockPromptItem extends PromptItem {
 
 export interface PromptItemUpdate {
   text?: string
+  rule?: RuleOption
 }
 
 // ============================================================
@@ -153,7 +216,7 @@ function IconButton({ icon, title, onClick }: {
   )
 }
 
-function AddMenu({ targetArr, textOnly, blocks = [] }: { targetArr: PromptItem[], textOnly?: boolean, blocks?: Block[] }) {
+function AddMenu({ targetArr, textOnly, blocks = [], assistantMode }: { targetArr: PromptItem[], textOnly?: boolean, blocks?: Block[], assistantMode?: 'wp' | 'reddit' }) {
   const { addItem, locked } = useEditorCtx()
   if (locked) return null
   const [open, setOpen] = useState(false)
@@ -184,36 +247,84 @@ function AddMenu({ targetArr, textOnly, blocks = [] }: { targetArr: PromptItem[]
           <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.TEXT, text: '' } as TextPromptItem)}>
             Freeform Text
           </div>
-          <div className="my-0.5 border-t border-neutral-700/60" />
-          <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.TEXT, text: '{topic_name}' } as TextPromptItem)}>
-            Debate Topic
-          </div>
-          <div className="my-0.5 border-t border-neutral-700/60" />
-          <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.TEXT, text: '{topic_statement}' } as TextPromptItem)}>
-            Debate Statement
-          </div>
-          <div className="my-0.5 border-t border-neutral-700/60" />
-          <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.CONTEXT, context: 'before' } as ContextPromptItem)}>
-            Participant Initial Positions
-          </div>
+          {!assistantMode && (
+            <>
+              <div className="my-0.5 border-t border-neutral-700/60" />
+              <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.TEXT, text: '{topic_name}' } as TextPromptItem)}>
+                Debate Topic
+              </div>
+              <div className="my-0.5 border-t border-neutral-700/60" />
+              <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.TEXT, text: '{topic_statement}' } as TextPromptItem)}>
+                Debate Statement
+              </div>
+            </>
+          )}
+          {assistantMode === 'wp' && (
+            <>
+              <div className="my-0.5 border-t border-neutral-700/60" />
+              <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.ARTICLE_PAGE } as ArticlePagePromptItem)}>
+                Article Page
+              </div>
+            </>
+          )}
+          {assistantMode === 'reddit' && (
+            <>
+              <div className="my-0.5 border-t border-neutral-700/60" />
+              <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.POST_TITLE } as PostTitlePromptItem)}>
+                Post Title
+              </div>
+              <div className="my-0.5 border-t border-neutral-700/60" />
+              <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.POST_DESCRIPTION } as PostDescriptionPromptItem)}>
+                Post Description
+              </div>
+              <div className="my-0.5 border-t border-neutral-700/60" />
+              <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.RULE, rule: 'A' } as RulePromptItem)}>
+                Rule
+              </div>
+              <div className="my-0.5 border-t border-neutral-700/60" />
+              <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.PARTICIPANT_ROLE } as ParticipantRolePromptItem)}>
+                Participant Role
+              </div>
+            </>
+          )}
+          {!assistantMode && (
+            <>
+              <div className="my-0.5 border-t border-neutral-700/60" />
+              <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.CONTEXT, context: 'before' } as ContextPromptItem)}>
+                Participant Initial Positions
+              </div>
+            </>
+          )}
           {!textOnly && (
             <>
               <div className="my-0.5 border-t border-neutral-700/60" />
               <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.CONTEXT, context: 'current' } as ContextPromptItem)}>
                 Conversation Context
               </div>
-              <div className="my-0.5 border-t border-neutral-700/60" />
-              <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.PROFILE_INFO } as ProfileInfoPromptItem)}>
-                Profile Info
-              </div>
+              {!assistantMode && (
+                <>
+                  <div className="my-0.5 border-t border-neutral-700/60" />
+                  <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.PROFILE_INFO } as ProfileInfoPromptItem)}>
+                    Profile Info
+                  </div>
+                </>
+              )}
               <div className="my-0.5 border-t border-neutral-700/60" />
               <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.PARTICIPANT_INFO } as ParticipantInfoPromptItem)}>
                 Participant Info
               </div>
               <div className="my-0.5 border-t border-neutral-700/60" />
-              <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.INITIALIZATION_CONTEXT } as InitializationContextPromptItem)}>
-                Initialization Result
+              <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.PARTICIPANT_CHAT_INPUT } as ParticipantChatInputPromptItem)}>
+                Participant Chat Input
               </div>
+              {!assistantMode && (
+                <>
+                  <div className="my-0.5 border-t border-neutral-700/60" />
+                  <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.INITIALIZATION_CONTEXT } as InitializationContextPromptItem)}>
+                    Initialization Result
+                  </div>
+                </>
+              )}
             </>
           )}
           {/* {textOnly && (
@@ -224,10 +335,14 @@ function AddMenu({ targetArr, textOnly, blocks = [] }: { targetArr: PromptItem[]
               </div>
             </>
           )} */}
-          <div className="my-0.5 border-t border-neutral-700/60" />
-          <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.BIASED } as BiasedPromptItem)}>
-            Target Bias Position
-          </div>
+          {!assistantMode && (
+            <>
+              <div className="my-0.5 border-t border-neutral-700/60" />
+              <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.BIASED } as BiasedPromptItem)}>
+                Target Bias Position
+              </div>
+            </>
+          )}
 
           {/* Blocks authored in the Simulation Toolkit. They only appear once
               the simulation holding them has been saved. */}
@@ -309,6 +424,23 @@ function BlockItemEditor({ item }: { item: BlockPromptItem }) {
   )
 }
 
+function RuleItemEditor({ item }: { item: RulePromptItem }) {
+  const { updateItem } = useEditorCtx()
+
+  return (
+    <select
+      value={item.rule}
+      onChange={e => updateItem(item, { rule: e.target.value as RuleOption })}
+      title={RULE_DESCRIPTIONS[item.rule]}
+      className="rounded bg-[#fde8c8] px-3 py-1.5 text-sm font-medium text-neutral-900 cursor-pointer focus:outline-none"
+    >
+      {RULE_OPTIONS.map(option => (
+        <option key={option} value={option} title={RULE_DESCRIPTIONS[option]}>{RULE_TITLES[option]}</option>
+      ))}
+    </select>
+  )
+}
+
 function ItemEditor({ item }: { item: PromptItem }) {
   switch (item.type) {
     case PromptItemType.TEXT:
@@ -333,6 +465,32 @@ function ItemEditor({ item }: { item: PromptItem }) {
           {(item as ContextPromptItem).context === 'before' ? 'Participant Initial Positions: the participants responses to the pre-conversation survey about the debate statement' : 'Conversation Context: the discussion up to this moment'}
         </div>
       )
+    case PromptItemType.ARTICLE_PAGE:
+      return (
+        <div className="cursor-default rounded bg-[#fde8c8] px-3 py-1.5 text-sm font-medium text-neutral-900">
+          Article Page
+        </div>
+      )
+    case PromptItemType.POST_TITLE:
+      return (
+        <div className="cursor-default rounded bg-[#fde8c8] px-3 py-1.5 text-sm font-medium text-neutral-900">
+          Post Title
+        </div>
+      )
+    case PromptItemType.POST_DESCRIPTION:
+      return (
+        <div className="cursor-default rounded bg-[#fde8c8] px-3 py-1.5 text-sm font-medium text-neutral-900">
+          Post Description
+        </div>
+      )
+    case PromptItemType.PARTICIPANT_ROLE:
+      return (
+        <div className="cursor-default rounded bg-[#fde8c8] px-3 py-1.5 text-sm font-medium text-neutral-900">
+          Participant Role
+        </div>
+      )
+    case PromptItemType.RULE:
+      return <RuleItemEditor item={item as RulePromptItem} />
     case PromptItemType.PROFILE_INFO:
       return (
         <div className="cursor-default rounded bg-[#f9d8f5] px-3 py-1.5 text-sm font-medium text-neutral-900">
@@ -343,6 +501,12 @@ function ItemEditor({ item }: { item: PromptItem }) {
       return (
         <div className="cursor-default rounded bg-[#dce1fd] px-3 py-1.5 text-sm font-medium text-neutral-900">
           Participant Info
+        </div>
+      )
+    case PromptItemType.PARTICIPANT_CHAT_INPUT:
+      return (
+        <div className="cursor-default rounded bg-[#dce1fd] px-3 py-1.5 text-sm font-medium text-neutral-900">
+          Participant Chat Input
         </div>
       )
     case PromptItemType.INITIALIZATION_CONTEXT:
@@ -477,6 +641,7 @@ export interface StructuredPromptEditorProps {
   textOnly?: boolean
   /** Blocks of the selected simulation, offered under "Add item". */
   blocks?: Block[]
+  assistantMode?: 'wp' | 'reddit'
 }
 
 export function StructuredPromptEditor({
@@ -486,6 +651,7 @@ export function StructuredPromptEditor({
   locked = false,
   textOnly = false,
   blocks = [],
+  assistantMode,
 }: StructuredPromptEditorProps) {
   // A block item carries a copy of its description so the exported template runs
   // without the simulation. Re-editing the block in the Simulation Toolkit would
@@ -519,7 +685,7 @@ export function StructuredPromptEditor({
       <div className="rounded-lg border border-neutral-700 bg-neutral-900">
         <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-700/60">
           <span className="text-xs font-semibold uppercase tracking-widest text-neutral-500">{label}</span>
-          <AddMenu targetArr={prompt} textOnly={textOnly} blocks={blocks} />
+          <AddMenu targetArr={prompt} textOnly={textOnly} blocks={blocks} assistantMode={assistantMode} />
         </div>
         <div className="p-3">
           <PromptItemList items={prompt} />

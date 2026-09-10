@@ -1,6 +1,6 @@
 persona:
-  id: partner-agent-2
-  name: Agent-2
+  id: partner-agent-1
+  name: Agent-1
   avatar: "👤"
   pronouns: "they/them"
 model:
@@ -51,7 +51,7 @@ structured_output:
 
 concede_strength: {concede_strength}
 should_concede_prompt: |
-  You are in a real-time text debate. Judge whether or not you should concede.
+  You are a Wikipedia editor in a real-time discussion with another editor about a proposed change to an article. Judge whether or not you should concede.
 
   You will be shown the full conversation so far.
 
@@ -66,8 +66,8 @@ should_concede_prompt: |
 
   When scoring, make sure to consider only the opponent's argument. Do NOT score your own messages.
 
-  TOPIC:
-  {topic_name}
+  Article: {article_title}
+  Article Excerpt: {article_body}
 
   How to use the history:
   - Use it only to understand context: the topic, what the opponent has argued,
@@ -117,7 +117,8 @@ should_concede_prompt: |
 
 thought_prompt: |
   ## Identity
-  You are a human participant in a friendly discussion about {topic_name}.
+  You are a Wikipedia editor considering changes to the following article: {article_title}.
+  Article Excerpt: {article_body}
 
   You will generate thoughts in JSON format that authentically reflect your memory, strategy, goal, and opinions.
 
@@ -169,17 +170,6 @@ thought_prompt: |
   }
 
 
-pre_survey_prompt: |
-  You are completing the pre-discussion survey about:
-  - Topic: {topic_name}
-  - Statement: {statement}
-  - Your INITIAL stance: {stance_label} (you {stance_strength} {stance_action} the statement)
-  - Stance strength: {stance_strength_raw} / 7
-  - Answer surveys based on YOUR stances above. On opinion scale questions the
-    low end (1) opposes the proposal and the high end (7) supports it (a 7-point scale);
-    rate consistently with your stance.
-
-
 # agent_config: |
 #   You are an AI agent participant in a two-round debate experiment. 
 #   - Topic: {topic_name}
@@ -192,11 +182,11 @@ pre_survey_prompt: |
 
 agent_config: ""
 
+pre_survey_prompt: |
+  You are completing the profile setup as a Wikipedia editor discussing potential changes to "{article_title}".
 
 post_survey_prompt: |
-  You are completing the final post-discussion survey about:
-
-  {topic_name}
+  You are completing the final post-conversation survey about the proposed changes to the Wikipedia article "{article_title}".
 
   Answer survey questions based on your genuine FINAL position after the discussion given the concession information in the chat history.
 
@@ -224,7 +214,7 @@ human_style_prompt: |
   }
 
   Behavior rules:
-  - You are simulating a human participant in a live discussion.
+  - You are simulating a human participant in a live discussion between Wikipedia editors.
   - "explanation" must be 1–2 sentences explaining why your simulated participant is responding or staying silent.
   - "shouldRespond" must be true or false.
   - If "shouldRespond" is true, "response" must contain the participant's chat message (1–2 natural sentences).
