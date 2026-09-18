@@ -143,39 +143,62 @@ function _post_survey_stage(tpl: Record<string, any>, stageId: string, stageIdsI
 
 
 
-// ── New schema: order/addTo prompt graph ───────────────────────────────────────
+// The toolkit gives users no way to author the raw JSON-formatting
+// instructions the legacy `human_style_prompt` YAML field used to spell out
+// by hand (see public/templates/defaults/agent-1.yaml), so `appendToPrompt`
+// must be true here — otherwise the model is never told to produce this
+// shape at all and every response fails to parse, which is why agents built
+// from this page couldn't actually chat.
+function _newStructuredOutputConfig(): Record<string, any> {
+  return {
+    enabled: true,
+    type: 'JSON_SCHEMA',
+    appendToPrompt: true,
+    shouldRespondField: 'shouldRespond',
+    messageField: 'response',
+    explanationField: 'explanation',
+    readyToEndField: 'readyToEndChat',
+    schema: {
+      type: 'OBJECT',
+      properties: [
+        { name: 'explanation', schema: { type: 'STRING', description: '1-2 sentences explaining why you are sending this message, or why you are staying silent, based on your persona and the chat context.' } },
+        { name: 'shouldRespond', schema: { type: 'BOOLEAN', description: 'Whether you want to send a message right now. Set to false to stay silent this turn; set to true to send the message in the response field.' } },
+        { name: 'response', schema: { type: 'STRING', description: 'Your chat message (empty if you prefer to stay silent).' } },
+        { name: 'readyToEndChat', schema: { type: 'BOOLEAN', description: 'Whether or not you are ready to end the conversation.' } },
+      ],
+    },
+  }
+}
+
+// ── New schema: order/prompt-output prompt graph ────────────────────────────────
 //
 // The Agent Participant toolkit page authors templates in this shape instead of
 // the flat `prompt` + plain-string-prompt legacy shape above. Its `chatSettings`
 // carries a `promptMap` of named, independently block-edited prompts, each with
-// an `order` (prompts sharing an order run in parallel) and an `addTo` (either
-// another prompt name with a strictly greater order, whose prompt this one's
-// output is prepended to, or the sentinel "message" once the chain is meant to
-// be sent to chat). `thoughtPrompt`/`characterPrompt` are separate, optional,
-// single block lists (null when disabled) outside that graph.
+// an `order` (prompts sharing an order run in parallel); a prompt can pull in
+// the output of any prompt with a strictly smaller order via a PROMPT_OUTPUT
+// block naming it. The prompt keyed "message" is the one sent to chat, and is
+// always kept at the final rank. `initializationPrompt`/`thoughtPrompt`/
+// `characterPrompt` are separate, optional, single block lists (null when
+// disabled) outside that graph, made available to other prompts via
+// INITIALIZATION_CONTEXT/CHARACTER_CONTEXT/THOUGHT_HISTORY_CONTEXT blocks.
 
 function _newChatPrompt(tpl: Record<string, any>, stageId: string, stageIdsInOrder: string[]): Record<string, any> {
   const cs = tpl.chatSettings ?? {}
-  const promptMap: Record<string, { order?: number; addTo?: string | null; prompt?: any[] }> = cs.promptMap ?? {}
+  const promptMap: Record<string, { order?: number; prompt?: any[] }> = cs.promptMap ?? {}
 
   const prompt: Record<string, any[]> = {}
   const order: Record<number, string[]> = {}
-  const addTo: Record<string, string[]> = {}
 
-  // addTo is keyed by the RECEIVING prompt, with the list holding the names
-  // of the prompts whose output gets appended to it — i.e. addTo[target]
-  // includes every prompt that sends its output to target. That's the
-  // inverse of how each entry stores its own single `addTo` target, so it
-  // has to be inverted here.
   for (const [name, entry] of Object.entries(promptMap)) {
     prompt[name] = buildPromptItems({ prompt: entry.prompt ?? [], context: cs.context }, stageId, stageIdsInOrder)
     const group = entry.order ?? 1
     ;(order[group] ??= []).push(name)
-    if (entry.addTo) {
-      (addTo[entry.addTo] ??= []).push(name)
-    }
   }
 
+  const initializationContextPrompt = Array.isArray(cs.initializationPrompt)
+    ? buildPromptItems({ prompt: cs.initializationPrompt, context: cs.context }, stageId, stageIdsInOrder)
+    : undefined
   const thoughtPrompt = Array.isArray(cs.thoughtPrompt)
     ? buildPromptItems({ prompt: cs.thoughtPrompt, context: cs.context }, stageId, stageIdsInOrder)
     : undefined
@@ -188,9 +211,9 @@ function _newChatPrompt(tpl: Record<string, any>, stageId: string, stageIdsInOrd
     type: 'chat',
     prompt,
     order,
-    addTo,
     includeScaffoldingInPrompt: cs.includeScaffoldingInPrompt,
     numRetries: cs.numRetries,
+    structuredOutputConfig: _newStructuredOutputConfig(),
     generationConfig: tpl.generation ? {
       temperature: tpl.generation.temperature,
       reasoningLevel: tpl.generation.reasoningLevel,
@@ -204,10 +227,9 @@ function _newChatPrompt(tpl: Record<string, any>, stageId: string, stageIdsInOrd
       initialMessage: cs.initialMessage,
       wordsPerMinute: cs.wordsPerMinute,
     },
+    initializationContextPrompt,
     thoughtPrompt,
     characterPrompt,
-    includePersona: [stageId],
-    includeThoughtHistory: [stageId],
   }
 }
 

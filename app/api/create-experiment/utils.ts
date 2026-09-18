@@ -167,12 +167,13 @@ export function fillAgentStance(
 
   substituteInBlocks(agentTemplate.prompt)
 
-  // New (order/addTo) schema: named prompts live under chatSettings.promptMap,
-  // plus the separate optional thoughtPrompt/characterPrompt block lists.
+  // New (order/promptOutput) schema: named prompts live under chatSettings.promptMap,
+  // plus the separate optional initializationPrompt/thoughtPrompt/characterPrompt block lists.
   if (agentTemplate.chatSettings?.promptMap) {
     for (const entry of Object.values(agentTemplate.chatSettings.promptMap) as any[]) {
       substituteInBlocks(entry?.prompt)
     }
+    substituteInBlocks(agentTemplate.chatSettings.initializationPrompt)
     substituteInBlocks(agentTemplate.chatSettings.thoughtPrompt)
     substituteInBlocks(agentTemplate.chatSettings.characterPrompt)
   }

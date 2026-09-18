@@ -15,6 +15,9 @@ export enum PromptItemType {
   PARTICIPANT_CHAT_INPUT = 'PARTICIPANT_CHAT_INPUT',
   INITIALIZATION_CONTEXT = 'INITIALIZATION_CONTEXT',
   PRELOADED_CONTEXT='PRELOADED_CONTEXT',
+  PROMPT_OUTPUT = 'PROMPT_OUTPUT',
+  CHARACTER_CONTEXT = 'CHARACTER_CONTEXT',
+  THOUGHT_HISTORY_CONTEXT = 'THOUGHT_HISTORY_CONTEXT',
   BIASED = 'BIASED',
   TOPIC_NAME = 'TOPIC_NAME',
   BLOCK = 'BLOCK',
@@ -84,6 +87,19 @@ export interface InitializationContextPromptItem extends PromptItem {
   type: PromptItemType.INITIALIZATION_CONTEXT
 }
 
+export interface PromptOutputPromptItem extends PromptItem {
+  type: PromptItemType.PROMPT_OUTPUT
+  promptId: string
+}
+
+export interface CharacterContextPromptItem extends PromptItem {
+  type: PromptItemType.CHARACTER_CONTEXT
+}
+
+export interface ThoughtHistoryContextPromptItem extends PromptItem {
+  type: PromptItemType.THOUGHT_HISTORY_CONTEXT
+}
+
 // Wikipedia Specific
 export interface ArticlePagePromptItem extends PromptItem {
   type: PromptItemType.ARTICLE_PAGE
@@ -135,6 +151,7 @@ export interface BlockPromptItem extends PromptItem {
 export interface PromptItemUpdate {
   text?: string
   rule?: RuleOption
+  promptId?: string
 }
 
 // ============================================================
@@ -186,6 +203,7 @@ interface EditorCtx {
   deleteItem: (targetArr: PromptItem[], index: number) => void
   moveItem: (targetArr: PromptItem[], index: number, dir: number) => void
   reorderItem: (targetArr: PromptItem[], from: number, to: number) => void
+  promptOutputOptions: { id: string; label: string }[]
 }
 
 const EditorContext = createContext<EditorCtx | null>(null)
@@ -221,8 +239,16 @@ function IconButton({ icon, title, onClick }: {
   )
 }
 
-function AddMenu({ targetArr, textOnly, blocks = [], assistantMode }: { targetArr: PromptItem[], textOnly?: boolean, blocks?: Block[], assistantMode?: 'wp' | 'reddit' }) {
-  const { addItem, locked } = useEditorCtx()
+function AddMenu({ targetArr, textOnly, blocks = [], assistantMode, showInitializationContext, showCharacterContext, showThoughtHistoryContext }: {
+  targetArr: PromptItem[]
+  textOnly?: boolean
+  blocks?: Block[]
+  assistantMode?: 'wp' | 'reddit'
+  showInitializationContext?: boolean
+  showCharacterContext?: boolean
+  showThoughtHistoryContext?: boolean
+}) {
+  const { addItem, locked, promptOutputOptions } = useEditorCtx()
   if (locked) return null
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -322,12 +348,43 @@ function AddMenu({ targetArr, textOnly, blocks = [], assistantMode }: { targetAr
               <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.PARTICIPANT_CHAT_INPUT } as ParticipantChatInputPromptItem)}>
                 Participant Chat Input
               </div>
-              {!assistantMode && (
+              {!assistantMode && showInitializationContext !== false && (
                 <>
                   <div className="my-0.5 border-t border-neutral-700/60" />
                   <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.INITIALIZATION_CONTEXT } as InitializationContextPromptItem)}>
                     Initialization Result
                   </div>
+                </>
+              )}
+              {!assistantMode && showCharacterContext && (
+                <>
+                  <div className="my-0.5 border-t border-neutral-700/60" />
+                  <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.CHARACTER_CONTEXT } as CharacterContextPromptItem)}>
+                    Character
+                  </div>
+                </>
+              )}
+              {!assistantMode && showThoughtHistoryContext && (
+                <>
+                  <div className="my-0.5 border-t border-neutral-700/60" />
+                  <div className={itemClass} role="button" onClick={() => pick({ type: PromptItemType.THOUGHT_HISTORY_CONTEXT } as ThoughtHistoryContextPromptItem)}>
+                    Thought History
+                  </div>
+                </>
+              )}
+              {!assistantMode && promptOutputOptions.length > 0 && (
+                <>
+                  <div className="my-0.5 border-t border-neutral-700/60" />
+                  {promptOutputOptions.map(opt => (
+                    <div
+                      key={opt.id}
+                      className={itemClass}
+                      role="button"
+                      onClick={() => pick({ type: PromptItemType.PROMPT_OUTPUT, promptId: opt.id } as PromptOutputPromptItem)}
+                    >
+                      Output: {opt.label}
+                    </div>
+                  ))}
                 </>
               )}
             </>
@@ -455,6 +512,34 @@ function RuleItemEditor({ item }: { item: RulePromptItem }) {
   )
 }
 
+function PromptOutputItemEditor({ item }: { item: PromptOutputPromptItem }) {
+  const { updateItem, promptOutputOptions } = useEditorCtx()
+  const label = promptOutputOptions.find(opt => opt.id === item.promptId)?.label ?? item.promptId
+
+  if (promptOutputOptions.length === 0) {
+    return (
+      <div className="cursor-default rounded bg-[#e0d8f9] px-3 py-1.5 text-sm font-medium text-neutral-900">
+        Output: {label}
+      </div>
+    )
+  }
+
+  return (
+    <select
+      value={item.promptId}
+      onChange={e => updateItem(item, { promptId: e.target.value })}
+      className="rounded bg-[#e0d8f9] px-3 py-1.5 text-sm font-medium text-neutral-900 cursor-pointer focus:outline-none"
+    >
+      {!promptOutputOptions.some(opt => opt.id === item.promptId) && (
+        <option value={item.promptId}>Output: {label}</option>
+      )}
+      {promptOutputOptions.map(opt => (
+        <option key={opt.id} value={opt.id}>Output: {opt.label}</option>
+      ))}
+    </select>
+  )
+}
+
 function ItemEditor({ item }: { item: PromptItem }) {
   switch (item.type) {
     case PromptItemType.TEXT:
@@ -530,6 +615,20 @@ function ItemEditor({ item }: { item: PromptItem }) {
           Initialization Result
         </div>
       )
+    case PromptItemType.CHARACTER_CONTEXT:
+      return (
+        <div className="cursor-default rounded bg-[#f9e0d8] px-3 py-1.5 text-sm font-medium text-neutral-900">
+          Character
+        </div>
+      )
+    case PromptItemType.THOUGHT_HISTORY_CONTEXT:
+      return (
+        <div className="cursor-default rounded bg-[#d8f0f9] px-3 py-1.5 text-sm font-medium text-neutral-900">
+          Thought History
+        </div>
+      )
+    case PromptItemType.PROMPT_OUTPUT:
+      return <PromptOutputItemEditor item={item as PromptOutputPromptItem} />
     case PromptItemType.BIASED:
       return (
         <div className="cursor-default rounded bg-[#f08673] px-3 py-1.5 text-sm font-medium text-neutral-900">
@@ -656,6 +755,15 @@ export interface StructuredPromptEditorProps {
   /** Blocks of the selected simulation, offered under "Add item". */
   blocks?: Block[]
   assistantMode?: 'wp' | 'reddit'
+  // Gates the "Initialization Result" block; omit to keep it always offered
+  // (existing callers), pass false where initialization is an optional,
+  // toggleable feature and it should only appear once enabled.
+  showInitializationContext?: boolean
+  showCharacterContext?: boolean
+  showThoughtHistoryContext?: boolean
+  // Named prompts (with a strictly earlier order) whose output can be pulled
+  // in via a "Prompt Output" block.
+  promptOutputOptions?: { id: string; label: string }[]
 }
 
 export function StructuredPromptEditor({
@@ -666,6 +774,10 @@ export function StructuredPromptEditor({
   textOnly = false,
   blocks = [],
   assistantMode,
+  showInitializationContext,
+  showCharacterContext,
+  showThoughtHistoryContext,
+  promptOutputOptions = [],
 }: StructuredPromptEditorProps) {
   // A block item carries a copy of its descriptions so the exported template runs
   // without the simulation. Re-editing the block in the Simulation Toolkit would
@@ -701,6 +813,7 @@ export function StructuredPromptEditor({
     deleteItem: (targetArr, index) => onUpdate(treeRemoveFrom(prompt, targetArr, index)),
     moveItem: (targetArr, index, dir) => onUpdate(treeMoveIn(prompt, targetArr, index, dir)),
     reorderItem: (targetArr, from, to) => onUpdate(treeReorder(prompt, targetArr, from, to)),
+    promptOutputOptions,
   }
 
   return (
@@ -708,7 +821,15 @@ export function StructuredPromptEditor({
       <div className="rounded-lg border border-neutral-700 bg-neutral-900">
         <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-700/60">
           <span className="text-xs font-semibold uppercase tracking-widest text-neutral-500">{label}</span>
-          <AddMenu targetArr={prompt} textOnly={textOnly} blocks={blocks} assistantMode={assistantMode} />
+          <AddMenu
+            targetArr={prompt}
+            textOnly={textOnly}
+            blocks={blocks}
+            assistantMode={assistantMode}
+            showInitializationContext={showInitializationContext}
+            showCharacterContext={showCharacterContext}
+            showThoughtHistoryContext={showThoughtHistoryContext}
+          />
         </div>
         <div className="p-3">
           <PromptItemList items={prompt} />
