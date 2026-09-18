@@ -370,7 +370,7 @@ export async function generate(p1: string, p2: string, experimentTemplatePath: s
             minParticipantsPerCohort: participantSlots.length,
             maxParticipantsPerCohort: participantSlots.length,
             includeAllParticipantsInCohortCount: cfg.includeAllParticipantsInCohortCount ?? true,
-            botProtection: cfg.botProtection ?? true,
+            botProtection: cfg.botProtection ?? false,
           },
         })),
       }),

@@ -108,7 +108,7 @@ export function buildExperiment(
         minParticipantsPerCohort: cohort.minParticipantsPerCohort ?? 2,
         maxParticipantsPerCohort: cohort.maxParticipantsPerCohort ?? 2,
         includeAllParticipantsInCohortCount: cohort.includeAllParticipantsInCohortCount ?? true,
-        botProtection: cohort.botProtection ?? true,
+        botProtection: cohort.botProtection ?? false,
       },
       prolificConfig: {
         enableProlificIntegration: prolific.enableProlificIntegration ?? false,

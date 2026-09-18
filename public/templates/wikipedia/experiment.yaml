@@ -33,7 +33,7 @@ experiment:
     minParticipantsPerCohort: 2
     maxParticipantsPerCohort: 2
     includeAllParticipantsInCohortCount: true
-    botProtection: true
+    botProtection: false
   prolificConfig:
     enableProlificIntegration: false
     defaultRedirectCode: ""

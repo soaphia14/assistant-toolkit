@@ -1,7 +1,7 @@
 persona:
   id: assistant
   name: AI Assistant
-  avatar: "🤖"
+  avatar: 🤖
   pronouns: null
   min_call_interval_ms: 8000
 model:
@@ -9,11 +9,11 @@ model:
   modelName: gemini-3-flash-preview
 generation:
   temperature: 0.7
-  reasoning_level: "off"
+  reasoning_level: 'off'
   include_reasoning: false
 include_scaffolding_in_prompt: true
 num_retries: 2
-context: "current"
+context: current
 structured_output:
   enabled: true
   append_to_prompt: false
@@ -21,90 +21,97 @@ structured_output:
   schema:
     response:
       type: STRING
-      description: "Your guidance for the participant."
-
+      description: Your guidance for the participant.
 prompt:
   - id: 0
     type: TEXT
-    text: |
-      You are a private assistant. You are visible only to the participant below. You do not send messages into the conversation yourself. Your role is only to privately assist the participant, not to converse with them back and forth.
+    text: >
+      You are a private assistant. You are visible only to the user below. You
+      do not send messages into the conversation yourself. Your role is only to
+      privately assist the user, not to converse with them back and forth.
 
-      You are assisting the following user:
 
+      You are assisting the following user on r/ChangeMyView::
   - id: 1
     type: PARTICIPANT_INFO
-  
   - id: 2
     type: TEXT
     text: |
-      With the following role: 
-
+      With the following role in the conversation:
   - id: 3
     type: PARTICIPANT_ROLE
-
   - id: 4
     type: TEXT
-    text: |
-      You are helping this participant in a discussion about the following reddit post on r/ChangeMyView:
-
+    text: >
+      You are helping this user in a discussion about the following reddit post
+      on r/ChangeMyView:
   - id: 5
     type: POST_TITLE
-  
   - id: 6
     type: POST_DESCRIPTION
-
   - id: 7
     type: TEXT
-    text: |
-      The participant is currently drafting the following message (not yet sent):
-
+    text: >
+      The user is currently drafting the following message (which was not yet
+      sent):
   - id: 8
     type: PARTICIPANT_CHAT_INPUT
-
-  - id: 9
-    type: CONTEXT
-
+  - type: TEXT
+    text: 'As a reply in the following conversation:'
+    id: 9
   - id: 10
-    type: TEXT
-    text: |
-      The purpose of your assistance is to ensure the participant follows the following rule. Do not provide assistance with the user's messaging or ideas. 
-
+    type: CONTEXT
   - id: 11
+    type: TEXT
+    text: >
+      The purpose of your assistance is to guide the user such that their
+      message does NOT lead the conversation towards a violation of the
+      following rule:
+  - id: 12
     type: RULE
-    rule: "3"
-
-should_respond_context: "current"
+    rule: '2'
+  - type: TEXT
+    text: >-
+      It is important to not provide assistance with the substance of the
+      conversation and not to take a stance on the issue being discussed.  It is
+      important to restrict your message to simply saying whether the
+      conversation is tense and/or whether the current draft is increasing or
+      decreasing the tension.  Do not make suggestions about what the user
+      should write.
+    id: 13
+should_respond_context: current
 should_respond_prompt:
   - id: 0
     type: TEXT
     text: |
-      You are assisting the following participant:
-
+      You are assisting the following user:
   - id: 1
     type: PARTICIPANT_INFO
-
   - id: 2
     type: TEXT
     text: |
-      The participant is currently drafting the following message (not yet sent):
-
+      The user is currently drafting the following message (not yet sent):
   - id: 3
     type: PARTICIPANT_CHAT_INPUT
-
   - id: 4
     type: TEXT
-    text: |
-      Based on the conversation so far, would a message from you be useful and relevant to the participant right now?
-      Lean on the side of intervening when in doubt — a brief, relevant suggestion is preferred over staying silent.
-      Cases to intervene include:
-      - If the participant is in a position to respond in the conversation
-      - If the participant's chat input may lead to incivility
-      - If the participant's chat input may violate Rule 3
-      The transcript is below.
-
+    text: 'as a reply to the following conversation:'
   - id: 5
     type: CONTEXT
-  
-  - id: 6
+  - type: TEXT
+    text: >+
+      Based on the conversation and the draft so far, you should decide whether
+      it is a good time to intervene.
+
+      Only intervene when there is high tension either in the conversation or in
+      the draft that the user is writing.
+
+
+    id: 6
+  - id: 7
     type: RULE
-    rule: "3"
+    rule: '2'
+  - type: TEXT
+    text: |
+      Lean on the side of intervening when in doubt.
+    id: 8
