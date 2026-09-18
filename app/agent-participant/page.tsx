@@ -13,6 +13,9 @@ import { ActionButton, ResultBox, type ActionState } from '../components/Experim
 import { MediatorSection } from '../components/MediatorSection'
 import { SaveSection } from '../components/SaveSection'
 import { YamlIOSection } from '../components/YamlIOSection'
+import { Nav } from '../components/Nav'
+import { SimulationBlockPicker } from '../components/SimulationBlockPicker'
+import { useSimulationBlocks } from '../lib/blocks'
 
 const idle: ActionState = { status: 'idle', result: null }
 
@@ -131,6 +134,7 @@ function PromptBlockLegend() {
         {legend('bg-[#dce1fd]', 'Participant Chat Input', "The other participant's current, unsent chat draft.")}
         {legend('bg-[#d8f9e0]', 'Initialization Result', 'The output of the initialization prompt.')}
         {legend('bg-[#f08673]', 'Target Bias Position', 'The direction of covert influence, if used.')}
+        {legend('bg-[#e6dcfd]', 'Simulation Blocks', 'The blocks you defined under Block Customization in the Simulation Toolkit.')}
       </div>
     </div>
   )
@@ -170,6 +174,10 @@ export default function AgentParticipantsPage() {
   const [authReady, setAuthReady] = useState(false)
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [simQuota, setSimQuota] = useState<{ used: number; limit: number; simMaxWaitTimeMs: number } | null>(null)
+
+  // Blocks are authored in the Simulation Toolkit and live inside the saved
+  // simulation, so they are read-only here.
+  const { blocks, simulations, selectedId, setSelectedId } = useSimulationBlocks()
 
   // Seeded synchronously so the prompt editor always has something to show
   // and edit immediately, instead of waiting on the save system's network
@@ -592,6 +600,8 @@ export default function AgentParticipantsPage() {
             </div>
           </div>
 
+          <Nav />
+
           {/* SAVE / LOAD — same system as the mediator toolkit */}
 
           <SaveSection
@@ -614,6 +624,12 @@ export default function AgentParticipantsPage() {
             <p className="text-sm text-neutral-500">
               Configure the prompts that define your agent's behavior. There's no separate "message creation" prompt — whichever prompt's <span className="text-neutral-400">add to</span> is set to <span className="text-neutral-400">Message</span> is the one that produces the chat message, and it's automatically kept last in the order no matter how many other prompts you add before it. Prompts that share the same <span className="text-neutral-400">order</span> run in parallel; any other <span className="text-neutral-400">add to</span> choice prepends a prompt's output to a later one.
             </p>
+
+            <SimulationBlockPicker
+              simulations={simulations}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
 
             {/* PROMPT TYPE TABS — boxed container, matching the assistant toolkit */}
 
@@ -800,6 +816,7 @@ export default function AgentParticipantsPage() {
                           prompt={activeEntry.prompt}
                           stageId=""
                           onUpdate={items => updatePromptBlocks(activeMessageName, items)}
+                          blocks={blocks}
                         />
                       </>
                     )}
@@ -817,6 +834,7 @@ export default function AgentParticipantsPage() {
                           prompt={agentParsed?.chatSettings?.characterPrompt ?? []}
                           stageId=""
                           onUpdate={updateCharacterBlocks}
+                          blocks={blocks}
                         />
                       </>
                     ) : (
@@ -836,6 +854,7 @@ export default function AgentParticipantsPage() {
                           prompt={agentParsed?.chatSettings?.thoughtPrompt ?? []}
                           stageId=""
                           onUpdate={updateThoughtBlocks}
+                          blocks={blocks}
                         />
                       </>
                     ) : (

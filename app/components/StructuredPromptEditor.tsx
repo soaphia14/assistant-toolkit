@@ -1,7 +1,7 @@
 'use client'
 
 import { createContext, useContext, useState, useRef, useEffect } from 'react'
-import type { Block } from '../lib/blocks'
+import { blockDescriptions, describeBlock, type Block } from '../lib/blocks'
 
 // ============================================================
 // Types
@@ -118,13 +118,18 @@ export interface BiasedPromptItem extends PromptItem {
 }
 
 // A block authored in the Simulation Toolkit's Block Customization panel. The
-// description is copied in alongside the name so an exported template still
+// descriptions are copied in alongside the name so an exported template still
 // carries the text: a run launched from the mediator toolkit sends no
 // simulation, so there is nothing to look the name up in.
+//
+// A block may offer several alternative descriptions, one of which is drawn at
+// random per experiment, so the copy is the whole list. Items saved before that
+// carry a single `description` string instead — read them through
+// `blockDescriptions`, which folds both shapes into a list.
 export interface BlockPromptItem extends PromptItem {
   type: PromptItemType.BLOCK
   name: string
-  description: string
+  descriptions: string[]
 }
 
 export interface PromptItemUpdate {
@@ -360,11 +365,11 @@ function AddMenu({ targetArr, textOnly, blocks = [], assistantMode }: { targetAr
                 key={block.name}
                 className={itemClass}
                 role="button"
-                title={block.description}
+                title={describeBlock(block)}
                 onClick={() => pick({
                   type: PromptItemType.BLOCK,
                   name: block.name,
-                  description: block.description,
+                  descriptions: blockDescriptions(block),
                 } as BlockPromptItem)}
               >
                 {block.name}
@@ -403,23 +408,32 @@ function TextItemEditor({ item }: { item: TextPromptItem }) {
   )
 }
 
-// The name is the reference; the description is only a fallback copy, so the
-// chip shows whichever description the simulation currently holds. A block the
+// The name is the reference; the descriptions are only a fallback copy, so the
+// chip shows whichever options the simulation currently holds. A block the
 // simulation no longer defines is flagged rather than dropped — the prompt still
 // runs on the copy it carries.
 function BlockItemEditor({ item }: { item: BlockPromptItem }) {
   const { blocks } = useEditorCtx()
   const live = blocks.find(b => b.name === item.name)
   const missing = blocks.length > 0 && !live
+  const options = blockDescriptions(live ?? item).filter(d => d.trim() !== '')
 
   return (
     <div
       title={missing
-        ? `This block is no longer in the selected simulation. It will run with the text saved here:\n\n${item.description}`
-        : live?.description ?? item.description}
-      className="cursor-default rounded bg-[#e6dcfd] px-3 py-1.5 text-sm font-medium text-neutral-900"
+        ? `This block is no longer in the selected simulation. It will run with the text saved here:\n\n${describeBlock(item)}`
+        : describeBlock(live ?? item)}
+      className="flex items-center gap-1.5 cursor-default rounded bg-[#e6dcfd] px-3 py-1.5 text-sm font-medium text-neutral-900"
     >
       {missing ? '⚠ ' : ''}{item.name}
+      {options.length > 1 && (
+        <span
+          title={`One of these ${options.length} options is picked at random for each experiment.`}
+          className="rounded-full bg-neutral-900/15 px-1.5 text-[11px] leading-4"
+        >
+          {options.length}
+        </span>
+      )}
     </div>
   )
 }
@@ -653,9 +667,11 @@ export function StructuredPromptEditor({
   blocks = [],
   assistantMode,
 }: StructuredPromptEditorProps) {
-  // A block item carries a copy of its description so the exported template runs
+  // A block item carries a copy of its descriptions so the exported template runs
   // without the simulation. Re-editing the block in the Simulation Toolkit would
-  // leave that copy behind, so refresh it whenever the two drift apart.
+  // leave that copy behind, so refresh it whenever the two drift apart. The copy
+  // is rewritten as a list even when it was saved as a single string, which is
+  // what retires the old shape from saved templates.
   useEffect(() => {
     if (locked || blocks.length === 0) return
     let changed = false
@@ -663,9 +679,16 @@ export function StructuredPromptEditor({
       if (item.type !== PromptItemType.BLOCK) return item
       const block = item as BlockPromptItem
       const live = blocks.find(b => b.name === block.name)
-      if (!live || live.description === block.description) return item
+      if (!live) return item
+      const liveDescriptions = blockDescriptions(live)
+      const copied = blockDescriptions(block)
+      if (Array.isArray(block.descriptions)
+        && liveDescriptions.length === copied.length
+        && liveDescriptions.every((d, i) => d === copied[i])) return item
       changed = true
-      return { ...block, description: live.description }
+      const rest = { ...block } as BlockPromptItem & { description?: string }
+      delete rest.description
+      return { ...rest, descriptions: liveDescriptions }
     })
     if (changed) onUpdate(synced)
   }, [prompt, blocks, locked, onUpdate])

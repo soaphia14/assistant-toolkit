@@ -8,13 +8,48 @@ import { API_BASE } from './config'
 // One named chunk of the conversation description, authored in the Simulation
 // Toolkit's Block Customization panel. Mirrors `SimulationBlock` in
 // api/create-experiment/parsers/simulation.ts.
-export type Block = { name: string; description: string }
+//
+// A block holds one or more alternative descriptions: whenever an experiment is
+// created, one of them is drawn at random and used everywhere that block
+// appears in that experiment (see `pickBlockDescription` in
+// api/create-experiment/utils.ts).
+export type Block = { name: string; descriptions: string[] }
 
 // Blocks every new simulation starts with. They behave exactly like custom
 // blocks — clicking one opens the same editor, and it can be edited or removed.
 export const DEFAULT_BLOCKS: Block[] = [
-  { name: 'Debate Topic', description: 'The topic of the debate.' },
+  { name: 'Debate Topic', descriptions: ['The topic of the debate.'] },
 ]
+
+/**
+ * Reads the options off anything block-shaped.
+ *
+ * Simulations and prompt items saved before a block could hold several options
+ * carry a single `description` string, so that shape is folded into a one-entry
+ * list rather than migrated on disk. Always returns at least one entry so the
+ * editor has a textbox to render.
+ */
+export function blockDescriptions(raw: unknown): string[] {
+  const b = raw as { descriptions?: unknown; description?: unknown } | null
+  const list = Array.isArray(b?.descriptions)
+    ? b!.descriptions
+    : b?.description != null ? [b.description] : []
+  const out = list.map((d: unknown) => String(d ?? ''))
+  return out.length > 0 ? out : ['']
+}
+
+export function normalizeBlock(raw: unknown): Block {
+  return { name: String((raw as Block)?.name ?? '').trim(), descriptions: blockDescriptions(raw) }
+}
+
+// One-line-per-option summary, used wherever a block is only hinted at (chip
+// tooltips, the "Add item" menu) so the alternatives are visible without
+// opening the editor.
+export function describeBlock(block: Block): string {
+  const options = blockDescriptions(block).filter(d => d.trim() !== '')
+  if (options.length <= 1) return options[0] ?? ''
+  return options.map((d, i) => `Option ${i + 1}: ${d}`).join('\n\n')
+}
 
 export type SimulationSummary = { id: string; name: string }
 
@@ -23,7 +58,7 @@ function parseBlocks(content: string): Block[] {
     const data = JSON.parse(content)
     if (!Array.isArray(data?.blocks)) return []
     return data.blocks
-      .map((b: Block) => ({ name: String(b?.name ?? '').trim(), description: String(b?.description ?? '') }))
+      .map(normalizeBlock)
       .filter((b: Block) => b.name !== '')
   } catch {
     return []

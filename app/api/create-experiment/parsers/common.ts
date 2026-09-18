@@ -1,4 +1,5 @@
 import { CMV_RULES } from '../../../assistant-reddit/topics'
+import { blockDescriptions } from '../utils'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -133,9 +134,10 @@ export function buildPromptItems(tpl: Record<string, any>, stageId: string, stag
       items.push({ type: 'TEXT', text: '{{target_bias_position}}', })
     } else if (kind === 'BLOCK') {
       // resolveBlockItems normally rewrites these against the live simulation
-      // before we get here; fall back to the copy the item carries.
+      // before we get here, drawing one of the block's options; fall back to the
+      // copy the item carries, whose first option keeps this path deterministic.
       const name = String(promptItem.name ?? '')
-      const description = String(promptItem.description ?? '')
+      const description = blockDescriptions(promptItem).find((d) => d.trim() !== '') ?? ''
       items.push({ type: 'TEXT', text: description ? `${name}: ${description}` : name })
     } else if (kind === 'POST_TITLE') {
       items.push({ type: 'TEXT', text: `Title: ${postTitle ?? ''}` })
