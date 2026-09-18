@@ -9,6 +9,7 @@ import * as yaml from 'js-yaml'
 import { StructuredPromptEditor, type PromptItem } from '../components/StructuredPromptEditor'
 import { ActionButton, ResultBox, type ActionState } from '../components/ExperimentActions'
 import { MediatorSection } from '../components/MediatorSection'
+import { Nav } from '../components/Nav'
 import { SaveSection } from '../components/SaveSection'
 import { YamlIOSection } from '../components/YamlIOSection'
 import { CMV_POSTS } from './topics'
@@ -372,6 +373,8 @@ export default function AssistantPage() {
               </button>
             </div>
           </div>
+
+          <Nav />
 
           {/* Save / Load */}
           <SaveSection

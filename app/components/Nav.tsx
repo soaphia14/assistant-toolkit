@@ -7,7 +7,7 @@ const NAV_ITEMS = [
   { href: '/simulation', label: 'Simulation' },
   { href: '/mediator', label: 'Mediator' },
   { href: '/agent-participant', label: 'Agent Participant' },
-  { href: '/assistant', label: 'Agent Assistant' },
+  { href: '/assistant-reddit', label: 'Agent Assistant' },
 ] as const
 
 export function Nav() {
