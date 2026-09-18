@@ -1,13 +1,15 @@
 import yaml from 'js-yaml'
+import { blockDescriptions, pickBlockDescription } from '../utils'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 // One named chunk of the chat stage description. Mirrors `Block` in
-// components/BlockCustomization.tsx and `StageDescriptionBlock` in the
-// ConvoArena backend.
+// lib/blocks.ts. A block offers one or more alternative descriptions; a single
+// one is drawn per experiment and handed to the backend, whose
+// `StageDescriptionBlock` holds one `description` string.
 export interface SimulationBlock {
   name: string
-  description: string
+  descriptions: string[]
 }
 
 export interface SimulationTemplate {
@@ -26,13 +28,15 @@ function _positiveNumber(value: unknown): number | undefined {
 
 // Blocks arrive from a hand-editable YAML file, so tolerate missing fields
 // rather than failing the whole run. A block without a name has nothing to
-// label it in the prompt, so it is dropped.
+// label it in the prompt, so it is dropped. Files written before a block could
+// hold several options carry a single `description`, which blockDescriptions
+// folds into a one-entry list.
 function _blocks(value: unknown): SimulationBlock[] {
   if (!Array.isArray(value)) return []
   return value
     .map((b) => ({
       name: String((b as SimulationBlock)?.name ?? '').trim(),
-      description: String((b as SimulationBlock)?.description ?? ''),
+      descriptions: blockDescriptions(b),
     }))
     .filter((b) => b.name !== '')
 }
@@ -57,15 +61,22 @@ export function parseSimulationTemplate(content: string): SimulationTemplate {
  * topic YAML's own primary text is dropped either way: when the simulation has
  * no description the backend skips the `* Stage description:` line entirely,
  * leaving only the block list under `[Stage: ...]`.
+ *
+ * Each block contributes the one description drawn for this experiment, taken
+ * from `choices` so the stage agrees with the mediator and agent prompts.
  */
 export function applySimulationToChatStage(
   chatStage: Record<string, any>,
   simulation: SimulationTemplate,
+  choices: Map<string, string> = new Map(),
 ): void {
   chatStage.descriptions = {
     ...chatStage.descriptions,
     primaryText: simulation.description,
-    blocks: simulation.blocks,
+    blocks: simulation.blocks.map((b) => ({
+      name: b.name,
+      description: pickBlockDescription(b.name, b.descriptions, choices),
+    })),
   }
   if (simulation.maxUtterance != null) chatStage.numUtterances = simulation.maxUtterance
   if (simulation.maxTime != null) chatStage.timeLimitInMinutes = simulation.maxTime

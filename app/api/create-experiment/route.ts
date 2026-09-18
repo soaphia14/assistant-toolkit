@@ -4,8 +4,6 @@ import { generate, type Mode } from './generator'
 import { MEDIATOR_PRESET } from './config'
 import { adminAuth, adminDb } from '../../lib/firebaseAdmin'
 import { FieldValue } from 'firebase-admin/firestore'
-import { loadTemplate } from './utils'
-import { MEDIATOR_DEFAULT, COMPETITION_MEDIATOR } from './config'
 
 const MODES: Mode[] = ['human-human', 'human-agent', 'agent-agent']
 
@@ -38,10 +36,15 @@ async function checkAndIncrementQuota(email: string, cohorts: number): Promise<{
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}))
-  const { mediatorTemplate, simulationTemplate, assistantTemplate, mediator = 'template', numAgents, p1 = 'participant-1', p2 = 'participant-2', topic = 'covenant_marriage', mode, numCohorts, numUtterances, action = 'create', idToken } = body as {
+  const { mediatorTemplate, simulationTemplate, assistantTemplate, agentTemplate, agentTemplates, mediator = 'template', numAgents, p1 = 'participant-1', p2 = 'participant-2', topic = 'covenant_marriage', mode, seats, numCohorts, numUtterances, action = 'create', idToken, postTitle, postDescription, experimentTemplateSet, agentAssignment, opParticipant } = body as {
     mediatorTemplate?: string
     simulationTemplate?: string
     assistantTemplate?: string
+    agentTemplate?: string
+    // One entry per agent slot, null where the simulation toolkit's pick did
+    // not resolve. Takes precedence over the single `agentTemplate`, which the
+    // agent toolkit still sends for its one-template-everywhere runs.
+    agentTemplates?: (string | null)[]
     // Which mediator to run with: the caller's own `mediatorTemplate`, the stock
     // preset, or none at all.
     mediator?: 'template' | 'preset' | 'none'
@@ -50,10 +53,19 @@ export async function POST(req: Request) {
     p2?: string
     topic?: string
     mode?: Mode
+    // The conversation's seats in order, when the caller lays them out itself
+    // (the simulation toolkit does, from its Pairings). Without it the layout
+    // comes from `mode` alone, which is what every other toolkit sends.
+    seats?: ('human' | 'agent')[]
     numCohorts?: string | number
     numUtterances?: string | number
     action?: 'create' | 'simulate'
     idToken?: string
+    postTitle?: string
+    postDescription?: string
+    experimentTemplateSet?: 'reddit' | 'wikipedia'
+    agentAssignment?: 'participant-1' | 'participant-2' | 'both'
+    opParticipant?: 'participant-1' | 'participant-2'
   }
 
   const parsedCohorts = parseInt(String(numCohorts), 10)
@@ -65,24 +77,33 @@ export async function POST(req: Request) {
   const parsedAgents = parseInt(String(numAgents), 10)
   const agentCount = Number.isFinite(parsedAgents) && parsedAgents >= 2 ? parsedAgents : undefined
 
+  // Only the mediator toolkit sends mediatorTemplate — assistant-toolkit pages send
+  // assistantTemplate instead and never a mediator, so their experiments have none.
   let mediatorContent: string | null
   if (mediator === 'none') {
     mediatorContent = null
   } else if (mediator === 'preset') {
     mediatorContent = fs.readFileSync(MEDIATOR_PRESET, 'utf8')
-  } else if (mediatorTemplate) {
-    mediatorContent = mediatorTemplate
-  } else if (assistantTemplate) {
-    // The assistant toolkit only lets the user edit the assistant, not the mediator —
-    // fall back to the competition mediator content (mirrors what the mediator page's
-    // "Load Default" merges client-side) so the experiment still has a working mediator.
-    mediatorContent = JSON.stringify({ ...loadTemplate(MEDIATOR_DEFAULT), ...loadTemplate(COMPETITION_MEDIATOR) })
   } else {
-    return Response.json({ error: 'mediatorTemplate is required' }, { status: 400 })
+    mediatorContent = mediatorTemplate ?? null
   }
 
   if (!mode || !MODES.includes(mode)) {
     return Response.json({ error: `invalid or missing mode: ${mode}` }, { status: 400 })
+  }
+
+  const seatList = Array.isArray(seats) && seats.length > 0 ? seats : undefined
+  if (seatList && seatList.some((s) => s !== 'human' && s !== 'agent')) {
+    return Response.json({ error: 'seats may only hold "human" or "agent"' }, { status: 400 })
+  }
+  if (seatList && seatList.length < 2) {
+    return Response.json({ error: 'a conversation needs at least 2 seats' }, { status: 400 })
+  }
+
+  // A run somebody has to join cannot be batched: the cohorts would sit empty
+  // waiting for people who were never sent a link.
+  if (action === 'simulate' && seatList?.includes('human')) {
+    return Response.json({ error: 'a run with a human seat cannot be simulated in batch' }, { status: 400 })
   }
 
   if (action === 'simulate') {
@@ -103,18 +124,27 @@ export async function POST(req: Request) {
 
   // const experimentTemplatePath = path.join(process.cwd(), 'public', 'templates', 'competition', 'experiment.yaml')
 
-  // randomize templates over the 5 topics intead of fixing one
-  const topicsDir = path.join(process.cwd(), 'public', 'templates', 'topics')
-  // const topics = fs.readdirSync(topicsDir)
-  // const chosen = topics.includes(topic) ? topic : topics[Math.floor(Math.random() * topics.length)]
-  const topics = ['congestion_pricing', 'covenant_marriage'] // hardcoded 2 for development, used the other 3 as the testing.
-  // A simulation template brings its own topic, so it always runs against the
-  // dedicated "simulation" template; mediator-toolkit runs keep randomizing.
-  const chosen = simulationTemplate ? 'simulation' : topics[Math.floor(Math.random() * topics.length)]
-  const experimentTemplatePath = path.join(topicsDir, chosen, 'experiment.yaml')
+  let experimentTemplatePath: string
+  if (experimentTemplateSet === 'reddit') {
+    experimentTemplatePath = path.join(process.cwd(), 'public', 'templates', 'reddit', 'experiment.yaml')
+  } else if (experimentTemplateSet === 'wikipedia') {
+    experimentTemplatePath = path.join(process.cwd(), 'public', 'templates', 'wikipedia', 'experiment.yaml')
+  } else {
+    // randomize templates over the 5 topics intead of fixing one
+    const topicsDir = path.join(process.cwd(), 'public', 'templates', 'topics')
+    // const topics = fs.readdirSync(topicsDir)
+    // const chosen = topics.includes(topic) ? topic : topics[Math.floor(Math.random() * topics.length)]
+    const topics = ['congestion_pricing', 'covenant_marriage'] // hardcoded 2 for development, used the other 3 as the testing.
+    // A simulation template brings its own topic, so it always runs against the
+    // dedicated "simulation" template; mediator-toolkit runs keep randomizing.
+    const chosen = simulationTemplate ? 'simulation' : topics[Math.floor(Math.random() * topics.length)]
+    experimentTemplatePath = path.join(topicsDir, chosen, 'experiment.yaml')
+  }
 
   try {
-    const result = await generate(p1, p2, experimentTemplatePath, mediatorContent, mode, cohortCount, utteranceCount, action, simulationTemplate, agentCount, assistantTemplate)
+    const result = await generate(p1, p2, experimentTemplatePath, mediatorContent, mode, cohortCount, utteranceCount, action,
+      simulationTemplate, agentCount, assistantTemplate, postTitle, postDescription, agentAssignment, experimentTemplateSet, opParticipant,
+      agentTemplates?.length ? agentTemplates : agentTemplate, seatList)
     return Response.json(result)
   } catch (e) {
     console.error('Error in create-experiment:', e)

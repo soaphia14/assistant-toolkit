@@ -45,7 +45,10 @@ export function buildExperiment(
   sim: boolean,
   assistants: AgentAssistantTemplate[] | null = null,
   postTitle?: string,
-  postDescription?: string
+  postDescription?: string,
+  // How many seats the run holds. The cohort has to be sized to it, or a run of
+  // three or more would fill up before everyone arrived.
+  participantCount?: number
 ): [Record<string, any>, string] {
 
   const subs: Record<string, string> = {
@@ -81,7 +84,7 @@ export function buildExperiment(
           alias: cohortAlias,
           name: `[toolkit] ${alias}`,
           description: `Test link for ${topicInfo.name}.`,
-          maxParticipantsPerCohort: cohort.maxParticipantsPerCohort ?? 2,
+          maxParticipantsPerCohort: participantCount ?? cohort.maxParticipantsPerCohort ?? 2,
         }
   
     ]

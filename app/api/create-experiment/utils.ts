@@ -23,29 +23,68 @@ export function substituteTokens(obj: any, subs: Record<string, string>): any {
 }
 
 /**
+ * Reads a block's alternative descriptions off either shape it is saved in: a
+ * `descriptions` list, or the single `description` string used before a block
+ * could hold several options.
+ */
+export function blockDescriptions(raw: unknown): string[] {
+  const b = raw as { descriptions?: unknown; description?: unknown } | null
+  const list = Array.isArray(b?.descriptions)
+    ? b!.descriptions
+    : b?.description != null ? [b.description] : []
+  return list.map((d: unknown) => String(d ?? ''))
+}
+
+/**
+ * Draws the description one block contributes to this experiment.
+ *
+ * A block may offer several alternatives, and exactly one of them is used —
+ * every place that block appears in the experiment (the chat stage description,
+ * the mediator prompt, every agent prompt in every cohort) has to agree, or the
+ * conversation describes itself two different ways. `choices` is that agreement:
+ * one map per `generate()` call, holding the first draw made for each name.
+ */
+export function pickBlockDescription(
+  name: string,
+  descriptions: string[],
+  choices: Map<string, string>,
+): string {
+  const cached = choices.get(name)
+  if (cached !== undefined) return cached
+  const options = descriptions.filter((d) => d.trim() !== '')
+  const chosen = options.length > 0 ? options[Math.floor(Math.random() * options.length)] : ''
+  choices.set(name, chosen)
+  return chosen
+}
+
+/**
  * Rewrites every `BLOCK` prompt item into the plain `TEXT` item the backend
  * expects, in place of the block authored in the simulation toolkit.
  *
  * A block item carries both the `name` it refers to and a copy of the
- * `description` it had when it was added. The live simulation wins when it still
- * defines that name, so editing a block there updates every prompt referencing
- * it; the copy is the fallback for runs that send no simulation at all (a
- * mediator-toolkit run, or an exported template run on its own).
+ * `descriptions` it had when it was added. The live simulation wins when it
+ * still defines that name, so editing a block there updates every prompt
+ * referencing it; the copy is the fallback for runs that send no simulation at
+ * all (a mediator-toolkit run, or an exported template run on its own).
  *
  * Walking the whole template rather than each prompt array covers the response,
  * should-respond, initialization and survey prompts in one pass.
  */
-export function resolveBlockItems(obj: any, blocks: { name: string; description: string }[] = []): any {
-  if (Array.isArray(obj)) return obj.map((x) => resolveBlockItems(x, blocks))
+export function resolveBlockItems(
+  obj: any,
+  blocks: { name: string; descriptions: string[] }[] = [],
+  choices: Map<string, string> = new Map(),
+): any {
+  if (Array.isArray(obj)) return obj.map((x) => resolveBlockItems(x, blocks, choices))
   if (obj && typeof obj === 'object') {
     if (obj.type === 'BLOCK') {
       const name = String(obj.name ?? '')
       const live = blocks.find((b) => b.name === name)
-      const description = live ? live.description : String(obj.description ?? '')
+      const description = pickBlockDescription(name, blockDescriptions(live ?? obj), choices)
       return { ...obj, type: 'TEXT', text: description ? `${name}: ${description}` : name }
     }
     const out: Record<string, any> = {}
-    for (const [k, v] of Object.entries(obj)) out[k] = resolveBlockItems(v, blocks)
+    for (const [k, v] of Object.entries(obj)) out[k] = resolveBlockItems(v, blocks, choices)
     return out
   }
   return obj

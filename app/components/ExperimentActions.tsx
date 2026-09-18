@@ -46,7 +46,10 @@ export function ResultBox({ title, state, links, showMessage, linkPrefix }: {
       <div className="p-4 space-y-3">
         {links?.cohorts && links.cohorts.map((cohort, cohortIdx) => (
           <div key={cohortIdx} className="space-y-2">
-            {cohort.participant_urls?.length === 2 && cohort.participant_urls.some(u => u.type === "agent") && (
+            {/* Only an all-agent cohort is watch-only. Once a human sits in one
+                of the seats their link is meant to be played, so the note would
+                be telling them the opposite of what to do. */}
+            {(cohort.participant_urls?.length ?? 0) >= 2 && cohort.participant_urls?.every(u => u.type === "agent") && (
               <div className="mb-3">
                 <label className="text-sm text-neutral-400">
                   The links below show you the Agent view as they complete the surveys and participate in the debate. You won't be able to interact.

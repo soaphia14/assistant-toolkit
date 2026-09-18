@@ -86,10 +86,10 @@ export function parseMediatorTemplate(content: string): Record<string, any> {
   return yaml.load(content) as Record<string, any>
 }
 
-export function buildMediator(stageId: string, mediatorTemplate: Record<string, any>, stageIdsInOrder: string[], topicInfo: Record<string, any>, simulationBlocks: SimulationBlock[] = []): AgentMediatorTemplate {
+export function buildMediator(stageId: string, mediatorTemplate: Record<string, any>, stageIdsInOrder: string[], topicInfo: Record<string, any>, simulationBlocks: SimulationBlock[] = [], blockChoices: Map<string, string> = new Map()): AgentMediatorTemplate {
   let tpl = replaceDefaults(mediatorTemplate, loadMediatorTemplate(MEDIATOR_DEFAULT))
   tpl = substituteTokens(tpl, { '{topic_name}': `Debate Topic: ${topicInfo.name}`, '{topic_statement}': `Debate Statement: ${topicInfo.statement}` })
-  tpl = resolveBlockItems(tpl, simulationBlocks)
+  tpl = resolveBlockItems(tpl, simulationBlocks, blockChoices)
   return {
     persona: buildPersona(tpl),
     promptMap: { [stageId]: _chatPrompt(tpl, stageId, stageIdsInOrder) },

@@ -1,9 +1,14 @@
 'use client'
 
+// One row of an experiment: who sits in the conversation, and which assistant
+// stands behind them. Mediators never take an assistant, so `assistant` stays
+// null on those rows.
+export type PairingMember = { participant: string; assistant: string | null }
+
 // `id` is stable for the life of the pairing so that other panels (e.g. Simulate
 // Conversation) can reference an experiment without breaking when one is removed
 // and the remaining ones shift position.
-export type Pairing = { id: string; members: string[] }
+export type Pairing = { id: string; members: PairingMember[] }
 
 export const newPairingId = () =>
   typeof crypto !== 'undefined' && crypto.randomUUID
@@ -12,32 +17,89 @@ export const newPairingId = () =>
 
 export type MemberOption = { value: string; label: string }
 
-// TODO: replace with the saved mediators once that toolkit is wired up. Agents
-// already come from the Agent Participants toolkit via `agentOptions`.
-export const MEDIATOR_OPTIONS = [
-  { value: 'no_mediator', label: 'No mediator' },
-  { value: 'mediator1', label: 'Mediator1' },
-  { value: 'mediator2', label: 'Mediator2' },
-  { value: 'mediator3', label: 'Mediator3' },
-] as const
+// Mediator picks carry this prefix so a stored member value still says which
+// library it came from: agents are stored as their bare saved-agent id, and the
+// two are opaque document ids that would otherwise be indistinguishable once a
+// simulation is saved.
+export const MEDIATOR_PREFIX = 'mediator:'
 
-const MEDIATOR_VALUES = new Set<string>(
-  MEDIATOR_OPTIONS.filter(o => o.value !== 'no_mediator').map(o => o.value),
-)
+export const mediatorMember = (id: string) => `${MEDIATOR_PREFIX}${id}`
 
-// What a pairing means to a run: how many agents sit in the conversation, and
-// whether a mediator joins them. Which specific agent/mediator was picked is
-// ignored for now — agents are generated with random stances and the mediator
-// comes from the stock preset.
+// A human seat. It takes a place in the conversation like an agent does, and a
+// run that holds one hands back a join link for it instead of building a
+// participant up front.
+export const HUMAN_MEMBER = 'human'
+
+// Simulations saved while the mediator list was still hardcoded hold these
+// placeholders; they keep counting as a mediator so an old simulation runs the
+// way it used to.
+const LEGACY_MEDIATOR_VALUES = new Set(['mediator1', 'mediator2', 'mediator3'])
+
+const isMediatorMember = (member: string) =>
+  member.startsWith(MEDIATOR_PREFIX) || LEGACY_MEDIATOR_VALUES.has(member)
+
+/** Whether a participant pick can have an assistant attached to it. */
+export const takesAssistant = (participant: string) =>
+  participant !== '' && participant !== 'no_mediator' && !isMediatorMember(participant)
+
+// A member that is no longer in either library is shown by whatever is left of
+// its stored value, which for a mediator is the id behind the prefix.
+const memberLabel = (member: string) =>
+  member.startsWith(MEDIATOR_PREFIX) ? member.slice(MEDIATOR_PREFIX.length) : member
+
+/**
+ * Reads a pairing's members however they were stored.
+ *
+ * Simulations saved before members carried an assistant hold one plain string
+ * per row, which reads as "this participant, no assistant".
+ */
+export function normalizeMembers(members: unknown): PairingMember[] {
+  if (!Array.isArray(members)) return []
+  return members.map(m => {
+    if (typeof m === 'string') return { participant: m, assistant: null }
+    const participant = String((m as PairingMember)?.participant ?? '')
+    const assistant = (m as PairingMember)?.assistant ?? null
+    return { participant, assistant: takesAssistant(participant) ? assistant : null }
+  })
+}
+
+// What a pairing means to a run: how many agents sit in the conversation,
+// whether a mediator joins them, and which saved templates were picked so the
+// run can load the ones the user actually authored. Stances are still drawn
+// randomly per cohort; only the prompts come from the picks.
 //
-// Agents are identified by exclusion rather than by a fixed list, because the
-// list is now the user's own saved agents: a simulation saved against an agent
-// that has since been renamed still counts toward the agent total.
+// Agents are identified by exclusion rather than by a fixed list, because both
+// lists are now the user's own saved libraries: a simulation saved against an
+// agent that has since been renamed still counts toward the agent total.
 export function summarizePairing(pairing: Pairing) {
-  const selected = pairing.members.filter(m => m && m !== 'no_mediator')
+  const selected = normalizeMembers(pairing.members)
+    .filter(m => m.participant && m.participant !== 'no_mediator')
+  const mediator = selected.find(m => isMediatorMember(m.participant))
+  const agents = selected.filter(
+    m => !isMediatorMember(m.participant) && m.participant !== HUMAN_MEMBER,
+  )
   return {
-    agentCount: selected.filter(m => !MEDIATOR_VALUES.has(m)).length,
-    hasMediator: selected.some(m => MEDIATOR_VALUES.has(m)),
+    agentCount: agents.length,
+    hasMediator: mediator !== undefined,
+    // Every seat in the conversation, in the order it was laid out, which is the
+    // order the run hands them to p1, p2, … A human seat and an agent seat each
+    // take one; the mediator sits outside the count.
+    seats: selected
+      .filter(m => !isMediatorMember(m.participant))
+      .map(m => (m.participant === HUMAN_MEMBER ? 'human' : 'agent') as 'human' | 'agent'),
+    // Saved-agent ids in the order they were added, which is the order they are
+    // handed to the participant slots.
+    agentIds: agents.map(m => m.participant),
+    // Positional against `agentIds`, null where that agent runs unassisted, so
+    // the caller keeps the alignment between agents and their assistants.
+    assistantIds: agents.map(m => m.assistant),
+    // Human seats need a join link handed out rather than a built participant.
+    humanCount: selected.filter(m => m.participant === HUMAN_MEMBER).length,
+    // Null for a legacy placeholder, which names no saved template to load; the
+    // run falls back to the stock mediator for those.
+    mediatorId: mediator?.participant.startsWith(MEDIATOR_PREFIX)
+      ? mediator.participant.slice(MEDIATOR_PREFIX.length)
+      : null,
   }
 }
 
@@ -47,95 +109,170 @@ function ordinal(n: number) {
   return `${n}${['th', 'st', 'nd', 'rd'][n % 10] ?? 'th'}`
 }
 
-export function PairingsEditor({ pairings, onUpdate, agentOptions = [] }: {
+const SELECT_CLASS =
+  'flex-1 min-w-0 px-2 py-1.5 rounded-md border border-neutral-700 bg-neutral-800 text-sm text-neutral-200 focus:outline-none focus:border-neutral-500 transition-colors cursor-pointer'
+
+export function PairingsEditor({ pairings, onUpdate, agentOptions = [], mediatorOptions = [], assistantOptions = [] }: {
   pairings: Pairing[]
   onUpdate: (pairings: Pairing[]) => void
   /** Agents saved in the Agent Participants toolkit. */
   agentOptions?: MemberOption[]
+  /** Mediators saved in the Mediator Toolkit; values are already prefixed. */
+  mediatorOptions?: MemberOption[]
+  /** Assistants saved in the Agent Assistant toolkit. */
+  assistantOptions?: MemberOption[]
 }) {
-  const agentValues = new Set(agentOptions.map(o => o.value))
+  const knownValues = new Set([...agentOptions, ...mediatorOptions].map(o => o.value))
+  const knownAssistants = new Set(assistantOptions.map(o => o.value))
   const addExperiment = () => onUpdate([...pairings, { id: newPairingId(), members: [] }])
 
   const removeExperiment = (idx: number) => onUpdate(pairings.filter((_, i) => i !== idx))
 
-  const addMember = (idx: number) =>
-    onUpdate(pairings.map((p, i) => (i === idx ? { ...p, members: [...p.members, ''] } : p)))
+  const membersOf = (pairing: Pairing) => normalizeMembers(pairing.members)
 
-  const setMember = (idx: number, memberIdx: number, value: string) =>
-    onUpdate(pairings.map((p, i) =>
-      i === idx ? { ...p, members: p.members.map((m, j) => (j === memberIdx ? value : m)) } : p,
+  const updateMembers = (idx: number, next: (members: PairingMember[]) => PairingMember[]) =>
+    onUpdate(pairings.map((p, i) => (i === idx ? { ...p, members: next(membersOf(p)) } : p)))
+
+  const addMember = (idx: number) =>
+    updateMembers(idx, members => [...members, { participant: '', assistant: null }])
+
+  // Switching a row onto a mediator drops the assistant with it — a mediator has
+  // nowhere to put one, and leaving it set would resurrect it if the row were
+  // switched back.
+  const setParticipant = (idx: number, memberIdx: number, participant: string) =>
+    updateMembers(idx, members => members.map((m, j) =>
+      j === memberIdx
+        ? { participant, assistant: takesAssistant(participant) ? m.assistant : null }
+        : m,
+    ))
+
+  const setAssistant = (idx: number, memberIdx: number, assistant: string) =>
+    updateMembers(idx, members => members.map((m, j) =>
+      j === memberIdx ? { ...m, assistant: assistant || null } : m,
     ))
 
   const removeMember = (idx: number, memberIdx: number) =>
-    onUpdate(pairings.map((p, i) =>
-      i === idx ? { ...p, members: p.members.filter((_, j) => j !== memberIdx) } : p,
-    ))
+    updateMembers(idx, members => members.filter((_, j) => j !== memberIdx))
 
   return (
     <div className="flex flex-wrap gap-4">
-      {pairings.map((pairing, idx) => (
-        <div
-          key={pairing.id}
-          className="w-64 min-h-64 flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-900/60 p-3"
-        >
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-neutral-300">{ordinal(idx + 1)} experiment</span>
-            <button
-              onClick={() => removeExperiment(idx)}
-              aria-label={`Remove ${ordinal(idx + 1)} experiment`}
-              className="text-neutral-600 hover:text-neutral-300 transition-colors cursor-pointer leading-none px-1"
-            >
-              ×
-            </button>
-          </div>
-
-          {pairing.members.map((member, memberIdx) => (
-            <div key={memberIdx} className="flex items-center gap-1.5">
-              <select
-                value={member}
-                onChange={e => setMember(idx, memberIdx, e.target.value)}
-                className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-neutral-700 bg-neutral-800 text-sm text-neutral-200 focus:outline-none focus:border-neutral-500 transition-colors cursor-pointer"
-              >
-                <option value="" disabled>Select…</option>
-                <optgroup label="Mediators">
-                  {MEDIATOR_OPTIONS.map(o => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </optgroup>
-                <optgroup label="Agents">
-                  {agentOptions.length === 0 && (
-                    <option value="" disabled>Save an agent in the Agent Participants toolkit</option>
-                  )}
-                  {agentOptions.map(o => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </optgroup>
-                {/* An agent the simulation was saved against but that no longer
-                    exists still needs an option, or the select would silently
-                    blank the choice out. */}
-                {member && !agentValues.has(member) && !MEDIATOR_VALUES.has(member) && member !== 'no_mediator' && (
-                  <option value={member}>{member} (no longer saved)</option>
-                )}
-              </select>
+      {pairings.map((pairing, idx) => {
+        const members = membersOf(pairing)
+        return (
+          <div
+            key={pairing.id}
+            className="w-96 min-h-64 flex flex-col gap-2 rounded-lg border border-neutral-800 bg-neutral-900/60 p-3"
+          >
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-neutral-300">{ordinal(idx + 1)} experiment</span>
               <button
-                onClick={() => removeMember(idx, memberIdx)}
-                aria-label="Remove selection"
+                onClick={() => removeExperiment(idx)}
+                aria-label={`Remove ${ordinal(idx + 1)} experiment`}
                 className="text-neutral-600 hover:text-neutral-300 transition-colors cursor-pointer leading-none px-1"
               >
                 ×
               </button>
             </div>
-          ))}
 
-          <button
-            onClick={() => addMember(idx)}
-            aria-label={`Add an agent or mediator to the ${ordinal(idx + 1)} experiment`}
-            className="w-full py-1.5 rounded-md border border-neutral-700 bg-neutral-800 text-sm text-neutral-300 hover:bg-neutral-700 hover:border-neutral-600 transition-colors cursor-pointer"
-          >
-            +
-          </button>
-        </div>
-      ))}
+            {members.length > 0 && (
+              <div className="flex items-center gap-1.5 text-xs text-neutral-500">
+                <span className="flex-1">Participant</span>
+                <span className="flex-1">Assistant</span>
+                <span className="w-4" />
+              </div>
+            )}
+
+            {members.map((member, memberIdx) => (
+              <div key={memberIdx} className="flex items-center gap-1.5">
+                <select
+                  value={member.participant}
+                  onChange={e => setParticipant(idx, memberIdx, e.target.value)}
+                  aria-label="Participant"
+                  className={SELECT_CLASS}
+                >
+                  <option value="" disabled>Select…</option>
+                  <optgroup label="Mediators">
+                    <option value="no_mediator">No mediator</option>
+                    {mediatorOptions.length === 0 && (
+                      <option value="" disabled>Save a mediator in the Mediator toolkit</option>
+                    )}
+                    {mediatorOptions.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Agents">
+                    {agentOptions.length === 0 && (
+                      <option value="" disabled>Save an agent in the Agent Participants toolkit</option>
+                    )}
+                    {agentOptions.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Humans">
+                    <option value={HUMAN_MEMBER}>Human Participant</option>
+                  </optgroup>
+                  {/* An agent or mediator the simulation was saved against but
+                      that no longer exists still needs an option, or the select
+                      would silently blank the choice out. */}
+                  {member.participant
+                    && member.participant !== 'no_mediator'
+                    && member.participant !== HUMAN_MEMBER
+                    && !knownValues.has(member.participant) && (
+                    <option value={member.participant}>{memberLabel(member.participant)} (no longer saved)</option>
+                  )}
+                </select>
+
+                {takesAssistant(member.participant) ? (
+                  <select
+                    value={member.assistant ?? ''}
+                    onChange={e => setAssistant(idx, memberIdx, e.target.value)}
+                    aria-label="Assistant"
+                    className={SELECT_CLASS}
+                  >
+                    <option value="">No Assistant</option>
+                    {assistantOptions.length === 0 && (
+                      <option value="" disabled>Save an assistant in the Agent Assistant toolkit</option>
+                    )}
+                    {assistantOptions.map(o => (
+                      <option key={o.value} value={o.value}>{o.label}</option>
+                    ))}
+                    {/* Same as above: an assistant deleted after the simulation
+                        was saved keeps its row rather than silently clearing. */}
+                    {member.assistant && !knownAssistants.has(member.assistant) && (
+                      <option value={member.assistant}>{member.assistant} (no longer saved)</option>
+                    )}
+                  </select>
+                ) : (
+                  // Mediators take no assistant, and an empty row has nothing to
+                  // attach one to.
+                  <span
+                    className="flex-1 min-w-0 px-2 py-1.5 rounded-md border border-neutral-800 bg-neutral-900 text-sm text-neutral-600 select-none"
+                    title="Mediators do not take an assistant"
+                  >
+                    NA
+                  </span>
+                )}
+
+                <button
+                  onClick={() => removeMember(idx, memberIdx)}
+                  aria-label="Remove selection"
+                  className="w-4 text-neutral-600 hover:text-neutral-300 transition-colors cursor-pointer leading-none"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+
+            <button
+              onClick={() => addMember(idx)}
+              aria-label={`Add a participant to the ${ordinal(idx + 1)} experiment`}
+              className="w-full py-1.5 rounded-md border border-neutral-700 bg-neutral-800 text-sm text-neutral-300 hover:bg-neutral-700 hover:border-neutral-600 transition-colors cursor-pointer"
+            >
+              +
+            </button>
+          </div>
+        )
+      })}
 
       <button
         onClick={addExperiment}

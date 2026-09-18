@@ -7,15 +7,13 @@ import { auth } from '../lib/firebase'
 import { API_BASE } from '../lib/config'
 import * as yaml from 'js-yaml'
 import { Nav } from '../components/Nav'
-import { PairingsEditor, newPairingId, summarizePairing, type Pairing } from '../components/PairingsEditor'
+import { PairingsEditor, newPairingId, normalizeMembers, summarizePairing, mediatorMember, type Pairing } from '../components/PairingsEditor'
 import { BlockCustomization, DEFAULT_BLOCKS, type Block } from '../components/BlockCustomization'
+import { normalizeBlock } from '../lib/blocks'
 import { ActionButton, ResultBox, type ActionState } from '../components/ExperimentActions'
 import { useSavedAgents } from '../lib/agents'
-
-const SUBMISSION_FORMS = {
-  track1: 'https://docs.google.com/forms/d/e/1FAIpQLSfTt_sYtTiiq_DszbId2VyqSLUr0tsfcRZqiC3uHi0YXh-3ew/viewform?usp=dialog',
-  track2: 'https://docs.google.com/forms/d/e/1FAIpQLSdfl4JQUFvxKaIAd2uXZCmMZEPu7NUl4_omg26YgupUqqjvCA/viewform?usp=publish-editor',
-} as const
+import { useSavedMediators } from '../lib/mediators'
+import { useSavedAssistants } from '../lib/assistants'
 
 const DEFAULT_SIMULATION = {
   description: '',
@@ -35,17 +33,79 @@ const EMPTY_RUN: SimRun = { experiment: '', repeats: '1' }
 // How many times a single experiment may be run.
 const MAX_RUNS = 5
 
-// Simulations saved before pairings had ids still need one to be referenceable.
-function withPairingIds(content: string): string {
+// Brings a saved simulation up to the shape the editor works in: pairings need
+// an id to be referenceable, members need to be participant/assistant pairs
+// rather than the bare participant strings older saves hold, and a block holds a
+// list of alternative descriptions where it used to hold a single string.
+function migrateSimulation(content: string): string {
   try {
     const data = JSON.parse(content)
     if (Array.isArray(data.pairings)) {
-      data.pairings = data.pairings.map((p: Pairing) => (p?.id ? p : { ...p, id: newPairingId() }))
+      data.pairings = data.pairings.map((p: Pairing) => ({
+        ...p,
+        id: p?.id ?? newPairingId(),
+        members: normalizeMembers(p?.members),
+      }))
+    }
+    if (Array.isArray(data.blocks)) {
+      data.blocks = data.blocks.map(normalizeBlock)
     }
     return JSON.stringify(data, null, 2)
   } catch {
     return content
   }
+}
+
+// Reads one saved template's body out of the user's library. Returns null when
+// it no longer resolves — an agent deleted after the simulation was saved, say —
+// so a stale pick degrades to the stock template instead of failing the run.
+async function loadTemplateContent(
+  collection: 'agents' | 'mediators',
+  id: string,
+  token: string,
+): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${API_BASE}/api/templates/load?collection=${collection}&id=${encodeURIComponent(id)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    )
+    if (!res.ok) return null
+    return (await res.json()).content ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Turns a pairing's picks into the template payload create-experiment expects.
+ *
+ * `agentTemplates` stays positional — one entry per agent slot, null where the
+ * pick did not resolve — so the backend can fall back per slot rather than
+ * losing the alignment between picks and slots.
+ */
+async function resolvePairingTemplates(pairing: Pairing, token: string) {
+  const { agentIds, mediatorId, hasMediator } = summarizePairing(pairing)
+  const agentTemplates = await Promise.all(
+    agentIds.map(id => loadTemplateContent('agents', id, token)),
+  )
+  const mediatorTemplate = mediatorId
+    ? await loadTemplateContent('mediators', mediatorId, token)
+    : null
+  return {
+    agentTemplates,
+    mediatorTemplate,
+    // A pick that failed to load still counts as "a mediator joins", so the run
+    // keeps its shape and uses the stock preset.
+    mediator: mediatorTemplate ? 'template' : hasMediator ? 'preset' : 'none',
+  }
+}
+
+// The backend lays a run out from its seats, but still labels the experiment by
+// mode, so a pairing is reported as whichever of the three it most resembles.
+function modeForSeats(seats: ('human' | 'agent')[]) {
+  if (seats.every(s => s === 'agent')) return 'agent-agent'
+  if (seats.every(s => s === 'human')) return 'human-human'
+  return 'human-agent'
 }
 
 // Reusable label + hint for the conversation parameter fields.
@@ -71,6 +131,22 @@ export default function SimulationPage() {
     [agents],
   )
 
+  // Mediators come from the Mediator Toolkit the same way, so a mediator saved
+  // there is selectable here without anything else being wired up.
+  const { mediators } = useSavedMediators()
+  const mediatorOptions = useMemo(
+    () => mediators.map(m => ({ value: mediatorMember(m.id), label: m.name })),
+    [mediators],
+  )
+
+  // Assistants come from the Agent Assistant toolkit, and attach to an agent
+  // rather than standing in the conversation on their own.
+  const { assistants } = useSavedAssistants()
+  const assistantOptions = useMemo(
+    () => assistants.map(a => ({ value: a.id, label: a.name })),
+    [assistants],
+  )
+
   // saving
   const [savedTemplates, setSavedTemplates] = useState<{ id: string; name: string }[]>([])
   const [templateName, setTemplateName] = useState('Simulation Export 1')
@@ -84,7 +160,7 @@ export default function SimulationPage() {
   const [runs, setRuns] = useState<SimRun[]>([{ experiment: '', repeats: '1' }])
   const [notice, setNotice] = useState<string | null>(null)
   const [simulating, setSimulating] = useState(false)
-  const [creating, setCreating] = useState<string | null>(null)
+  const [creating, setCreating] = useState(false)
   // One entry per pairing that was built, in pairing order.
   const [createResults, setCreateResults] = useState<{ label: string; prefix: string; state: ActionState }[]>([])
   // One entry per run row that was submitted, in the order they were listed.
@@ -97,6 +173,12 @@ export default function SimulationPage() {
   }, [simulationData])
 
   const pairings: Pairing[] = useMemo(() => simulationParsed?.pairings ?? [], [simulationParsed])
+  // A pairing that seats a human cannot be batch-simulated: the conversation
+  // waits for somebody to open their link, so it has to be created instead.
+  const simulatableCount = useMemo(
+    () => pairings.filter(p => summarizePairing(p).humanCount === 0).length,
+    [pairings],
+  )
   const blocks: Block[] = useMemo(() => simulationParsed?.blocks ?? [], [simulationParsed])
 
   async function fetchSavedTemplates() {
@@ -114,7 +196,7 @@ export default function SimulationPage() {
         })
         if (loadRes.ok) {
           const loaded = await loadRes.json()
-          const content = withPairingIds(loaded.content)
+          const content = migrateSimulation(loaded.content)
           setSimulationData(content)
           setTemplateName(loaded.name)
           setLastSavedContent(content)
@@ -164,7 +246,7 @@ export default function SimulationPage() {
     })
     if (!res.ok) return
     const data = await res.json()
-    const content = withPairingIds(data.content)
+    const content = migrateSimulation(data.content)
     setSimulationData(content)
     setTemplateName(data.name)
     setLastSavedContent(content)
@@ -242,6 +324,14 @@ export default function SimulationPage() {
       return
     }
 
+    // Nobody is around to open a human's link during a batch run, so the cohort
+    // would sit empty until it timed out.
+    const withHuman = queued.find(({ pairingIndex }) => summarizePairing(pairings[pairingIndex]).humanCount > 0)
+    if (withHuman) {
+      setNotice(`Experiment ${withHuman.pairingIndex + 1} seats a human, so it cannot be simulated in batch — use Create to get its join link.`)
+      return
+    }
+
     // A conversation needs at least two agents; the backend has no one to pair
     // the lone agent with otherwise.
     const short = queued.find(({ pairingIndex }) => summarizePairing(pairings[pairingIndex]).agentCount < 2)
@@ -259,7 +349,9 @@ export default function SimulationPage() {
     setSimulating(true)
     try {
       for (const { run, pairingIndex } of queued) {
-        const { agentCount, hasMediator } = summarizePairing(pairings[pairingIndex])
+        const { agentCount } = summarizePairing(pairings[pairingIndex])
+        const { agentTemplates, mediatorTemplate, mediator } =
+          await resolvePairingTemplates(pairings[pairingIndex], idToken)
         const label = `Experiment ${pairingIndex + 1}`
         try {
           const res = await fetch(`${API_BASE}/api/create-experiment`, {
@@ -267,7 +359,9 @@ export default function SimulationPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               simulationTemplate,
-              mediator: hasMediator ? 'preset' : 'none',
+              mediator,
+              mediatorTemplate,
+              agentTemplates,
               numAgents: agentCount,
               mode: 'agent-agent',
               action: 'simulate',
@@ -286,19 +380,22 @@ export default function SimulationPage() {
     }
   }
 
-  // Builds one cohort of agents per pairing and hands back links to watch them,
-  // rather than running a batch. Unlike Simulate it needs no sign-in and spends
-  // no quota, so it is the cheap way to eyeball every setup at once.
-  async function handleCreateAgentAgent() {
+  // Builds one cohort per pairing and hands back one link per seat, rather than
+  // running a batch: an agent's link watches it play its part, a human's link is
+  // the one you send to whoever is sitting in that seat. Unlike Simulate it
+  // spends no quota, so it is the cheap way to eyeball every setup at once, and
+  // it is the only way to run a pairing that seats a human. It still needs the
+  // signed-in user's token to read the agents and mediators they picked.
+  async function handleCreate() {
     const eligible = pairings
       .map((pairing, index) => ({ index, ...summarizePairing(pairing) }))
-      .filter(p => p.agentCount >= 2)
+      .filter(p => p.seats.length >= 2)
 
     if (eligible.length === 0) {
       setNotice(
         pairings.length === 0
           ? 'Add an experiment under Pairings first.'
-          : 'Create (agent-agent) needs an experiment with at least 2 agents.',
+          : 'Create needs an experiment with at least 2 participants.',
       )
       return
     }
@@ -307,14 +404,19 @@ export default function SimulationPage() {
     // blocking the ones that can run.
     const skipped = pairings.length - eligible.length
     setNotice(skipped > 0
-      ? `Skipping ${skipped} experiment${skipped === 1 ? '' : 's'} with fewer than 2 agents.`
+      ? `Skipping ${skipped} experiment${skipped === 1 ? '' : 's'} with fewer than 2 participants.`
       : null)
+
+    const idToken = await auth.currentUser?.getIdToken()
+    if (!idToken) return
 
     const simulationTemplate = simulationYaml()
     setCreateResults([])
-    setCreating('agent-agent')
+    setCreating(true)
     try {
-      for (const { index, agentCount, hasMediator } of eligible) {
+      for (const { index, seats } of eligible) {
+        const { agentTemplates, mediatorTemplate, mediator } =
+          await resolvePairingTemplates(pairings[index], idToken)
         const label = `Create · Experiment ${index + 1}`
         const prefix = `Exp ${index + 1}`
         try {
@@ -323,9 +425,12 @@ export default function SimulationPage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               simulationTemplate,
-              mediator: hasMediator ? 'preset' : 'none',
-              numAgents: agentCount,
-              mode: 'agent-agent',
+              mediator,
+              mediatorTemplate,
+              agentTemplates,
+              // `seats` is what actually lays the run out; `mode` only labels it.
+              seats,
+              mode: modeForSeats(seats),
               action: 'create',
             }),
           })
@@ -336,7 +441,7 @@ export default function SimulationPage() {
         }
       }
     } finally {
-      setCreating(null)
+      setCreating(false)
     }
   }
 
@@ -355,7 +460,7 @@ export default function SimulationPage() {
     const reader = new FileReader()
     reader.onload = () => {
       try {
-        setSimulationData(withPairingIds(JSON.stringify(yaml.load(String(reader.result)), null, 2)))
+        setSimulationData(migrateSimulation(JSON.stringify(yaml.load(String(reader.result)), null, 2)))
         setRuns([EMPTY_RUN])
       } catch { /* ignore invalid yaml */ }
     }
@@ -419,19 +524,6 @@ export default function SimulationPage() {
             >
               {saving ? 'Saving…' : isDirty ? 'Save *' : 'Saved'}
             </button>
-            <select
-              defaultValue=""
-              onChange={e => {
-                const formUrl = SUBMISSION_FORMS[e.target.value as keyof typeof SUBMISSION_FORMS]
-                if (formUrl) window.open(formUrl, '_blank', 'noopener,noreferrer')
-                e.target.value = ''
-              }}
-              className="px-3 py-1.5 rounded-md border border-blue-400/50 bg-blue-500/10 text-sm text-blue-300 hover:border-blue-300 hover:text-blue-200 transition-colors cursor-pointer"
-            >
-              <option value="" disabled>Submit…</option>
-              <option value="track1">Track 1</option>
-              <option value="track2">Track 2</option>
-            </select>
             <button
               onClick={() => {
                 if (window.confirm('Start a new simulation? Any unsaved changes will be lost.')) {
@@ -517,7 +609,13 @@ export default function SimulationPage() {
             </Field>
 
             <Field label="Pairings (combination of agents and mediators)">
-              <PairingsEditor pairings={pairings} onUpdate={updatePairings} agentOptions={agentOptions} />
+              <PairingsEditor
+                pairings={pairings}
+                onUpdate={updatePairings}
+                agentOptions={agentOptions}
+                mediatorOptions={mediatorOptions}
+                assistantOptions={assistantOptions}
+              />
             </Field>
           </div>
 
@@ -569,17 +667,15 @@ export default function SimulationPage() {
             <h2 className="text-lg font-semibold tracking-tight">Simulation Testing</h2>
           </div>
           <div className="space-y-3">
-            {(['human-agent', 'human-human', 'agent-agent'] as const).map(mode => (
-              <ActionButton
-                key={mode}
-                label={`Create (${mode})`}
-                loadingLabel="Creating…"
-                loading={creating === mode}
-                onClick={mode === 'agent-agent'
-                  ? handleCreateAgentAgent
-                  : () => setNotice(`Create (${mode}) is not wired to the backend yet.`)}
-              />
-            ))}
+            <p className="text-sm text-neutral-500">
+             Test the experiments you have created in the Pairings tab.
+            </p>
+            <ActionButton
+              label="Create"
+              loadingLabel="Creating…"
+              loading={creating}
+              onClick={handleCreate}
+            />
             {createResults.map(({ label, prefix, state }, i) => (
               <ResultBox
                 key={i}
@@ -613,9 +709,16 @@ export default function SimulationPage() {
                   className="flex-1 min-w-0 px-3 py-2 rounded-lg border border-neutral-700 bg-neutral-900 text-sm text-neutral-300 hover:border-neutral-500 transition-colors cursor-pointer"
                 >
                   <option value="" disabled>Experiment #</option>
-                  {pairings.map((pairing, p) => (
-                    <option key={pairing.id} value={pairing.id}>Experiment {p + 1}</option>
-                  ))}
+                  {pairings.map((pairing, p) => {
+                    // Listed but unselectable, so it is clear why a human
+                    // experiment is missing rather than it simply being absent.
+                    const hasHuman = summarizePairing(pairing).humanCount > 0
+                    return (
+                      <option key={pairing.id} value={pairing.id} disabled={hasHuman}>
+                        Experiment {p + 1}{hasHuman ? ' (has a human seat — use Create)' : ''}
+                      </option>
+                    )
+                  })}
                 </select>
                 <input
                   type="number"
@@ -641,13 +744,15 @@ export default function SimulationPage() {
             ))}
             <button
               onClick={() => setRuns([...runs, EMPTY_RUN])}
-              disabled={runs.length >= pairings.length}
+              disabled={runs.length >= simulatableCount}
               aria-label="Add an experiment to run"
               title={pairings.length === 0
                 ? 'Add an experiment under Pairings first'
-                : runs.length >= pairings.length
-                  ? `You can add at most ${pairings.length} row${pairings.length === 1 ? '' : 's'} — one per experiment`
-                  : undefined}
+                : simulatableCount === 0
+                  ? 'Every experiment seats a human — use Create to get their join links'
+                  : runs.length >= simulatableCount
+                    ? `You can add at most ${simulatableCount} row${simulatableCount === 1 ? '' : 's'} — one per experiment without a human seat`
+                    : undefined}
               className="w-full py-2 rounded-lg border border-dashed border-neutral-700 bg-neutral-900 text-sm text-neutral-400 hover:border-neutral-500 hover:text-neutral-200 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:border-neutral-700 disabled:hover:text-neutral-400"
             >
               +
