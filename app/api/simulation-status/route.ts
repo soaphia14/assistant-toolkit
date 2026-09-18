@@ -1,3 +1,4 @@
+import {resolveDlApiKey} from '../dl-key'
 import { BASE_URL } from '../create-experiment/config'
 
 const TERMINAL_STATUSES = new Set([
@@ -11,7 +12,7 @@ const TERMINAL_STATUSES = new Set([
 ])
 
 export async function GET(request: Request) {
-  const apiKey = process.env.DL_API_KEY ?? ''
+  const apiKey = resolveDlApiKey()
   if (!apiKey) return Response.json({ error: 'DL_API_KEY not set' }, { status: 500 })
 
   const expId = new URL(request.url).searchParams.get('experimentId')

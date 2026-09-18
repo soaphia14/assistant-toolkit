@@ -19,6 +19,15 @@ const SOURCE = process.env.DL_ENV_PATH ?? path.join(process.cwd(), '..', 'TrAuSt
 const TARGET = path.join(process.cwd(), '.env')
 
 const warn = (msg) => console.warn(`sync-dl-key: ${msg}; leaving ${KEY} as is`)
+
+// A shell export beats .env in Next, so syncing the file would fix nothing.
+if (process.env[KEY]) {
+  console.warn(
+    `sync-dl-key: ${KEY} is exported in this shell (${process.env[KEY].slice(0, 12)}...). ` +
+      `Next prefers it over .env, so the toolkit may keep using a dead key — ` +
+      `run 'unset ${KEY}' in this terminal and start again.`,
+  )
+}
 const valueOf = (line) => line.slice(KEY.length + 1).trim()
 
 if (!existsSync(SOURCE)) {
