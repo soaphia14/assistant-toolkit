@@ -1,0 +1,7 @@
+topic:
+  name: "Unpaid On-Campus Internships"
+  statement: I support Cornell banning unpaid on-campus internships.
+  scale_low: "Strongly disagree"
+  scale_high: "Strongly agree"
+  favor_disagree: "Cornell not banning unpaid on-campus internships"
+  favor_agree: "Cornell banning unpaid on-campus internships"

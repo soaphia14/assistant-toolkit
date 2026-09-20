@@ -1,0 +1,7 @@
+topic:
+  name: "Swim Test"
+  statement: I support swim test at Cornell being mandatory.
+  scale_low: "Strongly disagree"
+  scale_high: "Strongly agree"
+  favor_disagree: "swim test not being mandatory"
+  favor_agree: "swim test being mandatory"

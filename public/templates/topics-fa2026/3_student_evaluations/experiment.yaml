@@ -1,0 +1,7 @@
+topic:
+  name: "Student Evaluations"
+  statement: I support student evaluations playing a larger role in professor hiring and retention decisions.
+  scale_low: "Strongly disagree"
+  scale_high: "Strongly agree"
+  favor_disagree: "student evaluations not playing a larger role"
+  favor_agree: "student evaluations playing a larger role"

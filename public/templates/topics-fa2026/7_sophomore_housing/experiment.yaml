@@ -1,0 +1,7 @@
+topic:
+  name: "Sophomore On-Campus Housing"
+  statement: I support on-campus housing being required for sophomores.
+  scale_low: "Strongly disagree"
+  scale_high: "Strongly agree"
+  favor_disagree: "on-campus housing not being required for sophomores"
+  favor_agree: "on-campus housing being required for sophomores"

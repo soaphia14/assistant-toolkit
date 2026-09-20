@@ -4,6 +4,7 @@ import { generate, type Mode } from './generator'
 import { MEDIATOR_PRESET } from './config'
 import { adminAuth, adminDb } from '../../lib/firebaseAdmin'
 import { FieldValue } from 'firebase-admin/firestore'
+import { TOPIC_SETS } from '@/app/lib/topicSets'
 
 const MODES: Mode[] = ['human-human', 'human-agent', 'agent-agent']
 
@@ -36,7 +37,7 @@ async function checkAndIncrementQuota(email: string, cohorts: number): Promise<{
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}))
-  const { mediatorTemplate, simulationTemplate, assistantTemplate, agentTemplate, agentTemplates, mediator = 'template', numAgents, p1 = 'participant-1', p2 = 'participant-2', topic = 'covenant_marriage', mode, seats, numCohorts, numUtterances, action = 'create', idToken, postTitle, postDescription, experimentTemplateSet, agentAssignment, opParticipant } = body as {
+  const { mediatorTemplate, simulationTemplate, assistantTemplate, agentTemplate, agentTemplates, mediator = 'template', numAgents, p1 = 'participant-1', p2 = 'participant-2', variant = 'default', mode, seats, numCohorts, numUtterances, action = 'create', idToken, postTitle, postDescription, experimentTemplateSet, agentAssignment, opParticipant } = body as {
     mediatorTemplate?: string
     simulationTemplate?: string
     assistantTemplate?: string
@@ -51,7 +52,7 @@ export async function POST(req: Request) {
     numAgents?: string | number
     p1?: string
     p2?: string
-    topic?: string
+    variant?: string
     mode?: Mode
     // The conversation's seats in order, when the caller lays them out itself
     // (the simulation toolkit does, from its Pairings). Without it the layout
@@ -122,22 +123,25 @@ export async function POST(req: Request) {
     }
   }
 
-  // const experimentTemplatePath = path.join(process.cwd(), 'public', 'templates', 'competition', 'experiment.yaml')
+  // const topicsDir = path.join(process.cwd(), 'public', 'templates', 'topics')
+  // const topics = ['congestion_pricing', 'covenant_marriage'] 
 
   let experimentTemplatePath: string
   if (experimentTemplateSet === 'reddit') {
     experimentTemplatePath = path.join(process.cwd(), 'public', 'templates', 'reddit', 'experiment.yaml')
   } else if (experimentTemplateSet === 'wikipedia') {
     experimentTemplatePath = path.join(process.cwd(), 'public', 'templates', 'wikipedia', 'experiment.yaml')
-  } else {
-    // randomize templates over the 5 topics intead of fixing one
-    const topicsDir = path.join(process.cwd(), 'public', 'templates', 'topics')
-    // const topics = fs.readdirSync(topicsDir)
-    // const chosen = topics.includes(topic) ? topic : topics[Math.floor(Math.random() * topics.length)]
-    const topics = ['congestion_pricing', 'covenant_marriage'] // hardcoded 2 for development, used the other 3 as the testing.
+  } else if (simulationTemplate) {
     // A simulation template brings its own topic, so it always runs against the
-    // dedicated "simulation" template; mediator-toolkit runs keep randomizing.
-    const chosen = simulationTemplate ? 'simulation' : topics[Math.floor(Math.random() * topics.length)]
+    // dedicated "simulation" template rather than a randomized one. It lives in
+    // the default set, which is why the topic set is not consulted here.
+    experimentTemplatePath = path.join(process.cwd(), 'public', 'templates', 'topics', 'simulation', 'experiment.yaml')
+  } else {
+    // Topic sets let the in-class (FA2026) toolkit draw from its own topics
+    // while every other caller keeps randomizing over the default set.
+    const set = TOPIC_SETS[variant as keyof typeof TOPIC_SETS] ?? TOPIC_SETS.default
+    const topicsDir = path.join(process.cwd(), 'public', 'templates', set.dir)
+    const chosen = set.topics[Math.floor(Math.random() * set.topics.length)]
     experimentTemplatePath = path.join(topicsDir, chosen, 'experiment.yaml')
   }
 

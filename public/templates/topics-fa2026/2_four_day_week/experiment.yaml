@@ -1,0 +1,7 @@
+topic:
+  name: "Four-Day Academic Week"
+  statement: I support Cornell implementing a 4-day academic week to improve student well-being.
+  scale_low: "Strongly disagree"
+  scale_high: "Strongly agree"
+  favor_disagree: "Cornell not implementing a 4-day academic week"
+  favor_agree: "Cornell implementing a 4-day academic week"

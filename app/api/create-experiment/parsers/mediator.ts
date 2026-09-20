@@ -91,7 +91,7 @@ export function buildMediator(stageId: string, mediatorTemplate: Record<string, 
   tpl = substituteTokens(tpl, { '{topic_name}': `Debate Topic: ${topicInfo.name}`, '{topic_statement}': `Debate Statement: ${topicInfo.statement}` })
   tpl = resolveBlockItems(tpl, simulationBlocks, blockChoices)
   return {
-    persona: buildPersona(tpl),
+    persona: { ...buildPersona(tpl), id: 'mediator' },
     promptMap: { [stageId]: _chatPrompt(tpl, stageId, stageIdsInOrder) },
   }
 }

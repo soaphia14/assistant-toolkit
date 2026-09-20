@@ -1,0 +1,7 @@
+topic:
+  name: "Phones in Lectures"
+  statement: I support phones being banned in lectures.
+  scale_low: "Strongly disagree"
+  scale_high: "Strongly agree"
+  favor_disagree: "phones not being banned in lectures"
+  favor_agree: "phones being banned in lectures"

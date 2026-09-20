@@ -1,0 +1,7 @@
+topic:
+  name: "Randomized First-Year Housing"
+  statement: I support first-year housing at Cornell being completely randomized.
+  scale_low: "Strongly disagree"
+  scale_high: "Strongly agree"
+  favor_disagree: "first-year housing not being completely randomized"
+  favor_agree: "first-year housing being completely randomized"

@@ -1,0 +1,7 @@
+topic:
+  name: "First-Semester Pass/Fail"
+  statement: I support first-year first-semester Cornell students being allowed to take all their courses pass/fail.
+  scale_low: "Strongly disagree"
+  scale_high: "Strongly agree"
+  favor_disagree: "first-semester students not being allowed to take all their courses pass/fail"
+  favor_agree: "first-semester students being allowed to take all their courses pass/fail"
