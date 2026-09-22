@@ -129,7 +129,11 @@ export async function generate(p1: string, p2: string, experimentTemplatePath: s
                           agentTemplateContent?: string | (string | null)[],
                           // The conversation's seats in order, when the caller lays them out
                           // itself; otherwise `mode` decides them.
-                          seats?: ('human' | 'agent')[]) {
+                          seats?: ('human' | 'agent')[],
+                          // One assistant template per seat, in the same order as `seats`, null
+                          // where that seat runs unassisted (simulation toolkit). Where it is
+                          // given it replaces `assistantTemplateContent` + `agentAssignment`.
+                          assistantTemplateContents?: (string | null)[]) {
   // Optional: when the simulation toolkit supplies a template, it owns the chat
   // stage description (and the conversation limits) instead of the topic YAML.
   const simulation = simulationTemplateContent
@@ -182,11 +186,52 @@ export async function generate(p1: string, p2: string, experimentTemplatePath: s
   const roleFor = (slot: string): 'OP' | 'Challenger' | undefined =>
     opParticipant ? ((slot === 'p1' && opParticipant === 'participant-1') || (slot === 'p2' && opParticipant === 'participant-2') ? 'OP' : 'Challenger') : undefined
 
-  // one shared assistant normally; but when both participants get the assistant and we know
-  // who's OP, build two role-specific assistants (one can't correctly serve both roles at once).
+  const exp = experimentTemplate.experiment ?? {}
+  const participantSlots = participantSlotsFor(mode, numAgents, templateSet, customAgentTemplates, seats)
+  // The first two seats keep the caller's own names for them; a run that seats a
+  // human further back numbers it off its slot, since only p1/p2 are passed in.
+  const slotToPid: Record<string, string> = { p1, p2 }
+  const pidFor = (slot: string) => slotToPid[slot] ?? `participant-${slot.slice(1)}`
+
+  const agentSlots = participantSlots.filter((s) => s.type === 'agent').map((s) => s.slot)
+
+  // An all-agent run needs nobody to show up, so it can be batched into cohorts
+  // and held to a wall-clock limit. One seat held by a human makes it a run
+  // somebody joins by link, whatever `mode` it was labelled with.
+  const isSim = participantSlots.every((s) => s.type === 'agent')
+
+  // Whether the agents should be drawn onto opposing sides. That is what makes a
+  // simulation worth watching, and it stays true of a simulation-toolkit run
+  // whose seats include a human — the agents around them should still disagree.
+  // Runs from the other toolkits keep drawing each stance independently.
+  const opposeStances = agentSlots.length >= 2 && (isSim || simulation != null)
+
+  // Assistants are addressed by the slot they stand behind, so they are built
+  // once the seats are laid out. They are experiment-wide rather than per-cohort:
+  // `agentAssistants` holds one definition each, which every cohort's agents then
+  // point at through `persona.assistantId`.
   const assistants: AgentAssistantTemplate[] = []
   const assistantIdForSlot: Record<string, string> = {}
-  if (assistantTemplateContent) {
+  // Whether the caller named an assistant per seat rather than one for the run.
+  // That is the only form that can address a seat past p2, so where it is given
+  // it names the recipients on its own and `agentAssignment` is not consulted.
+  const perSeatAssistants = assistantTemplateContents?.some((c) => c) ?? false
+  if (perSeatAssistants) {
+    participantSlots.forEach(({ slot }, i) => {
+      const content = assistantTemplateContents![i]
+      if (!content) return
+      const assistant = buildAssistant(chatStageId, parseAssistantTemplate(content), stageIdsInOrder, topicInfo, postTitle, postDescription, roleFor(slot))
+      // The same collision the agent templates have: every assistant one user
+      // saves carries the same persona id (the Agent Assistant toolkit derives it
+      // from their email and does not expose it for editing), so this suffix is
+      // the only thing keeping two of them apart inside one experiment.
+      assistant.persona.id = `${assistant.persona.id}-${slot}`
+      assistants.push(assistant)
+      assistantIdForSlot[slot] = assistant.persona.id
+    })
+  } else if (assistantTemplateContent) {
+    // one shared assistant normally; but when both participants get the assistant and we know
+    // who's OP, build two role-specific assistants (one can't correctly serve both roles at once).
     const parsedAssistant = parseAssistantTemplate(assistantTemplateContent)
     if (agentAssignment === 'both' && opParticipant) {
       const opSlot = opParticipant === 'participant-1' ? 'p1' : 'p2'
@@ -211,26 +256,6 @@ export async function generate(p1: string, p2: string, experimentTemplatePath: s
     }
   }
 
-  const exp = experimentTemplate.experiment ?? {}
-  const participantSlots = participantSlotsFor(mode, numAgents, templateSet, customAgentTemplates, seats)
-  // The first two seats keep the caller's own names for them; a run that seats a
-  // human further back numbers it off its slot, since only p1/p2 are passed in.
-  const slotToPid: Record<string, string> = { p1, p2 }
-  const pidFor = (slot: string) => slotToPid[slot] ?? `participant-${slot.slice(1)}`
-
-  const agentSlots = participantSlots.filter((s) => s.type === 'agent').map((s) => s.slot)
-
-  // An all-agent run needs nobody to show up, so it can be batched into cohorts
-  // and held to a wall-clock limit. One seat held by a human makes it a run
-  // somebody joins by link, whatever `mode` it was labelled with.
-  const isSim = participantSlots.every((s) => s.type === 'agent')
-
-  // Whether the agents should be drawn onto opposing sides. That is what makes a
-  // simulation worth watching, and it stays true of a simulation-toolkit run
-  // whose seats include a human — the agents around them should still disagree.
-  // Runs from the other toolkits keep drawing each stance independently.
-  const opposeStances = agentSlots.length >= 2 && (isSim || simulation != null)
-
   const chatStage = stages.find((s) => s.kind === 'chat')
   if (chatStage) {
     if (isSim) {
@@ -247,8 +272,16 @@ export async function generate(p1: string, p2: string, experimentTemplatePath: s
     if (assistants.length > 0 && chatStage.progress) {
       const isHumanSlot = (slot: string) => participantSlots.find((s) => s.slot === slot)?.type === 'human'
       const mapping: Record<string, string> = {}
-      if ((agentAssignment === 'participant-1' || agentAssignment === 'both') && isHumanSlot('p1') && assistantIdForSlot.p1) mapping[p1] = assistantIdForSlot.p1
-      if ((agentAssignment === 'participant-2' || agentAssignment === 'both') && isHumanSlot('p2') && assistantIdForSlot.p2) mapping[p2] = assistantIdForSlot.p2
+      if (perSeatAssistants) {
+        // Every human seat that was given one, keyed by the id it joins under —
+        // an agent seat's assistant rides on its persona instead, below.
+        for (const { slot, type } of participantSlots) {
+          if (type === 'human' && assistantIdForSlot[slot]) mapping[pidFor(slot)] = assistantIdForSlot[slot]
+        }
+      } else {
+        if ((agentAssignment === 'participant-1' || agentAssignment === 'both') && isHumanSlot('p1') && assistantIdForSlot.p1) mapping[p1] = assistantIdForSlot.p1
+        if ((agentAssignment === 'participant-2' || agentAssignment === 'both') && isHumanSlot('p2') && assistantIdForSlot.p2) mapping[p2] = assistantIdForSlot.p2
+      }
       chatStage.progress.pIdToAssistantId = mapping
     }
 
@@ -293,7 +326,10 @@ export async function generate(p1: string, p2: string, experimentTemplatePath: s
             : `${tpl.persona.id}-${slot}-c${ci}`
         }
 
-        const wantsAssistant = agentAssignment === 'both'
+        // A per-seat pick already said which slots get one, so only the shared
+        // form has to ask the assignment switch who the recipients are.
+        const wantsAssistant = perSeatAssistants
+          || agentAssignment === 'both'
           || (agentAssignment === 'participant-1' && slot === 'p1')
           || (agentAssignment === 'participant-2' && slot === 'p2')
         if (wantsAssistant && assistantIdForSlot[slot]) {

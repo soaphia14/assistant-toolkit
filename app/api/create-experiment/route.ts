@@ -37,10 +37,15 @@ async function checkAndIncrementQuota(email: string, cohorts: number): Promise<{
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => ({}))
-  const { mediatorTemplate, simulationTemplate, assistantTemplate, agentTemplate, agentTemplates, mediator = 'template', numAgents, p1 = 'participant-1', p2 = 'participant-2', variant = 'default', mode, seats, numCohorts, numUtterances, action = 'create', idToken, postTitle, postDescription, experimentTemplateSet, agentAssignment, opParticipant } = body as {
+  const { mediatorTemplate, simulationTemplate, assistantTemplate, assistantTemplates, agentTemplate, agentTemplates, mediator = 'template', numAgents, p1 = 'participant-1', p2 = 'participant-2', variant = 'default', mode, seats, numCohorts, numUtterances, action = 'create', idToken, postTitle, postDescription, experimentTemplateSet, agentAssignment, opParticipant } = body as {
     mediatorTemplate?: string
     simulationTemplate?: string
     assistantTemplate?: string
+    // One entry per *seat*, null where that seat runs unassisted. Takes
+    // precedence over the single `assistantTemplate` + `agentAssignment` pair,
+    // which the assistant toolkits still send and which can only ever address
+    // p1 and p2.
+    assistantTemplates?: (string | null)[]
     agentTemplate?: string
     // One entry per agent slot, null where the simulation toolkit's pick did
     // not resolve. Takes precedence over the single `agentTemplate`, which the
@@ -148,7 +153,8 @@ export async function POST(req: Request) {
   try {
     const result = await generate(p1, p2, experimentTemplatePath, mediatorContent, mode, cohortCount, utteranceCount, action,
       simulationTemplate, agentCount, assistantTemplate, postTitle, postDescription, agentAssignment, experimentTemplateSet, opParticipant,
-      agentTemplates?.length ? agentTemplates : agentTemplate, seatList)
+      agentTemplates?.length ? agentTemplates : agentTemplate, seatList,
+      assistantTemplates?.length ? assistantTemplates : undefined)
     return Response.json(result)
   } catch (e) {
     console.error('Error in create-experiment:', e)

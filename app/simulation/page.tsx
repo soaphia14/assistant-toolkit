@@ -60,7 +60,7 @@ function migrateSimulation(content: string): string {
 // it no longer resolves — an agent deleted after the simulation was saved, say —
 // so a stale pick degrades to the stock template instead of failing the run.
 async function loadTemplateContent(
-  collection: 'agents' | 'mediators',
+  collection: 'agents' | 'mediators' | 'assistants-reddit',
   id: string,
   token: string,
 ): Promise<string | null> {
@@ -81,18 +81,24 @@ async function loadTemplateContent(
  *
  * `agentTemplates` stays positional — one entry per agent slot, null where the
  * pick did not resolve — so the backend can fall back per slot rather than
- * losing the alignment between picks and slots.
+ * losing the alignment between picks and slots. `assistantTemplates` is
+ * positional too, but against the *seats*: an assistant can stand behind a human
+ * seat as well as an agent one, and the backend attaches both by slot.
  */
 async function resolvePairingTemplates(pairing: Pairing, token: string) {
-  const { agentIds, mediatorId, hasMediator } = summarizePairing(pairing)
+  const { agentIds, seatAssistantIds, mediatorId, hasMediator } = summarizePairing(pairing)
   const agentTemplates = await Promise.all(
     agentIds.map(id => loadTemplateContent('agents', id, token)),
+  )
+  const assistantTemplates = await Promise.all(
+    seatAssistantIds.map(id => (id ? loadTemplateContent('assistants-reddit', id, token) : null)),
   )
   const mediatorTemplate = mediatorId
     ? await loadTemplateContent('mediators', mediatorId, token)
     : null
   return {
     agentTemplates,
+    assistantTemplates,
     mediatorTemplate,
     // A pick that failed to load still counts as "a mediator joins", so the run
     // keeps its shape and uses the stock preset.
@@ -350,7 +356,7 @@ export default function SimulationPage() {
     try {
       for (const { run, pairingIndex } of queued) {
         const { agentCount } = summarizePairing(pairings[pairingIndex])
-        const { agentTemplates, mediatorTemplate, mediator } =
+        const { agentTemplates, assistantTemplates, mediatorTemplate, mediator } =
           await resolvePairingTemplates(pairings[pairingIndex], idToken)
         const label = `Experiment ${pairingIndex + 1}`
         try {
@@ -362,6 +368,7 @@ export default function SimulationPage() {
               mediator,
               mediatorTemplate,
               agentTemplates,
+              assistantTemplates,
               numAgents: agentCount,
               mode: 'agent-agent',
               action: 'simulate',
@@ -415,7 +422,7 @@ export default function SimulationPage() {
     setCreating(true)
     try {
       for (const { index, seats } of eligible) {
-        const { agentTemplates, mediatorTemplate, mediator } =
+        const { agentTemplates, assistantTemplates, mediatorTemplate, mediator } =
           await resolvePairingTemplates(pairings[index], idToken)
         const label = `Create · Experiment ${index + 1}`
         const prefix = `Exp ${index + 1}`
@@ -428,6 +435,7 @@ export default function SimulationPage() {
               mediator,
               mediatorTemplate,
               agentTemplates,
+              assistantTemplates,
               // `seats` is what actually lays the run out; `mode` only labels it.
               seats,
               mode: modeForSeats(seats),

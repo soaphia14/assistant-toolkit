@@ -75,24 +75,25 @@ export function summarizePairing(pairing: Pairing) {
   const selected = normalizeMembers(pairing.members)
     .filter(m => m.participant && m.participant !== 'no_mediator')
   const mediator = selected.find(m => isMediatorMember(m.participant))
-  const agents = selected.filter(
-    m => !isMediatorMember(m.participant) && m.participant !== HUMAN_MEMBER,
-  )
+  // Every seat in the conversation, in the order it was laid out, which is the
+  // order the run hands them to p1, p2, … A human seat and an agent seat each
+  // take one; the mediator sits outside the count.
+  const seatMembers = selected.filter(m => !isMediatorMember(m.participant))
+  const agents = seatMembers.filter(m => m.participant !== HUMAN_MEMBER)
   return {
     agentCount: agents.length,
     hasMediator: mediator !== undefined,
-    // Every seat in the conversation, in the order it was laid out, which is the
-    // order the run hands them to p1, p2, … A human seat and an agent seat each
-    // take one; the mediator sits outside the count.
-    seats: selected
-      .filter(m => !isMediatorMember(m.participant))
-      .map(m => (m.participant === HUMAN_MEMBER ? 'human' : 'agent') as 'human' | 'agent'),
+    seats: seatMembers.map(
+      m => (m.participant === HUMAN_MEMBER ? 'human' : 'agent') as 'human' | 'agent',
+    ),
     // Saved-agent ids in the order they were added, which is the order they are
     // handed to the participant slots.
     agentIds: agents.map(m => m.participant),
-    // Positional against `agentIds`, null where that agent runs unassisted, so
-    // the caller keeps the alignment between agents and their assistants.
-    assistantIds: agents.map(m => m.assistant),
+    // Saved-assistant ids positional against `seats` — not against `agentIds` —
+    // null where that seat runs unassisted. A human seat may be assisted too, and
+    // the run addresses both kinds by the slot the seat sits in, so the alignment
+    // that has to survive is the one with the seats.
+    seatAssistantIds: seatMembers.map(m => m.assistant ?? null),
     // Human seats need a join link handed out rather than a built participant.
     humanCount: selected.filter(m => m.participant === HUMAN_MEMBER).length,
     // Null for a legacy placeholder, which names no saved template to load; the
